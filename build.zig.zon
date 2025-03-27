@@ -1,0 +1,21 @@
+.{
+    .name = .zenpaper,
+    .version = "0.0.0",
+    .fingerprint = 0x3bfac852b1f0983b, // Changing this has security and trust implications.
+    .minimum_zig_version = "0.14.0",
+
+    .dependencies = .{
+        .portaudio = .{
+            .url = "git+https://github.com/allyourcodebase/portaudio#237f514a2a38a8eab3ce708ced43ff37a9122672",
+            .hash = "portaudio-19.7.0-2-Wv4wb8MrAAC-HJWh15MlqVOS0cpvmaOG-IoOO1Jkymss",
+        },
+    },
+
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "src",
+        "LICENSE",
+        "README.md",
+    },
+}
