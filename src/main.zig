@@ -6,7 +6,23 @@ const PortAudio = @import("PortAudio.zig");
 const NoteSpool = @import("NoteSpool.zig");
 const AstToSpool = @import("AstToSpool.zig");
 
-pub fn main() !void {
+fn help() void {
+    std.log.info(
+        \\Usage: zenpaper [subcommand] [options]
+        \\
+        \\Subcommands:
+        \\  play             Play a xenpaper composition
+        \\
+    , .{});
+}
+
+fn helpAndError(comptime fmt: []const u8, args: anytype) u8 {
+    help();
+    std.log.err(fmt, args);
+    return 1;
+}
+
+pub fn main() !u8 {
     var debug_allocator = switch (builtin.mode) {
         .Debug => std.heap.DebugAllocator(.{}){},
         else => {},
@@ -21,9 +37,43 @@ pub fn main() !void {
         else => std.heap.smp_allocator,
     };
 
-    const buffer = @embedFile("hello.xp");
+    var args = try std.process.argsWithAllocator(allocator);
+    defer args.deinit();
 
-    var tokens = try Tokenizer.tokenize(allocator, buffer);
+    std.debug.assert(args.skip());
+
+    const subcommand = args.next() orelse {
+        return helpAndError("expected subcommand", .{});
+    };
+
+    if (std.mem.eql(u8, subcommand, "play")) {
+        return play(allocator, &args);
+    } else {
+        return helpAndError("unexpected subcommand {s}", .{subcommand});
+    }
+}
+
+fn play(allocator: std.mem.Allocator, args: *std.process.ArgIterator) !u8 {
+    const path = args.next() orelse {
+        return helpAndError("expected path to xenpaper file", .{});
+    };
+
+    const source = std.fs.cwd().readFileAllocOptions(
+        allocator,
+        path,
+        std.math.maxInt(usize),
+        null,
+        @alignOf(u8),
+        0,
+    ) catch |err| switch (err) {
+        error.FileNotFound, error.AccessDenied, error.BadPathName => |e| {
+            return helpAndError("failed to open xenpaper file '{s}': {s}", .{ path, @errorName(e) });
+        },
+        else => |e| return e,
+    };
+    defer allocator.free(source);
+
+    var tokens = try Tokenizer.tokenize(allocator, source);
     defer tokens.deinit(allocator);
 
     var ast = try Parser.parse(allocator, &tokens);
@@ -31,7 +81,7 @@ pub fn main() !void {
 
     ast.debugPrintNode(&tokens, .root, 0);
 
-    var note_spool = try AstToSpool.astToSpool(allocator, buffer, &tokens, &ast, 48_000);
+    var note_spool = try AstToSpool.astToSpool(allocator, source, &tokens, &ast, 48_000);
     defer note_spool.deinit(allocator);
 
     note_spool.debugPrint();
@@ -52,7 +102,11 @@ pub fn main() !void {
     );
     try stream.start();
 
-    while (true) {}
+    while (!@atomicLoad(bool, &note_spool.done, .acquire)) {}
+
+    try stream.stop();
+
+    return 0;
 }
 
 fn realtime(

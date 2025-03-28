@@ -36,6 +36,13 @@ pub const Stream = opaque {
             return error.StartFailed;
         }
     }
+
+    pub fn stop(stream: *Stream) !void {
+        const err = portaudio.Pa_StopStream(@ptrCast(stream));
+        if (err != portaudio.paNoError) {
+            return error.StopFailed;
+        }
+    }
 };
 
 pub fn openDefaultStream(

@@ -81,6 +81,7 @@ fn parseRootChild(parser: *Parser) !?Node.Index {
             .keyword_r => try parser.parseRootFrequency(scratch_start),
             else => try parser.parseScale(scratch_start),
         },
+        .period => try parser.parseRest(scratch_start),
         .eof => {
             if (!parser.isScratchEmptyFrom(scratch_start)) {
                 return error.ParseError;
@@ -233,9 +234,9 @@ fn parseNote(
                         .scale => error.ParseError,
                         else => try parser.parseFractionalHertz(scratch_start, note_suffix_behavior),
                     },
-                    else => error.ParseError,
+                    else => try parser.parseDegree(scratch_start, note_suffix_behavior),
                 },
-                else => error.ParseError,
+                else => try parser.parseDegree(scratch_start, note_suffix_behavior),
             },
             // .colon => switch (parser.peekTag(2)) {
             //     .integer => {
@@ -574,9 +575,13 @@ fn parseMultiRatioShorthand(parser: *Parser) !void {
     }, start_token);
 }
 
-fn parseRest(parser: *Parser) !void {
+fn parseRest(parser: *Parser, scratch_start: ScratchIndex) !Node.Index {
+    if (!parser.isScratchEmptyFrom(scratch_start)) {
+        return error.ParseError;
+    }
+
     const period_token = parser.assertToken(.period);
-    try parser.appendInst(.rest, period_token);
+    return parser.appendNode(.rest, period_token);
 }
 
 fn nextToken(parser: *Parser) Token.Index {

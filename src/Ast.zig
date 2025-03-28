@@ -90,9 +90,7 @@ pub const Node = struct {
         hold,
 
         /// main_token is period
-        rest: struct { extra: struct {
-            children: []const Node.Index,
-        } },
+        rest,
 
         /// main_token is left_square or none in the case of an a:b:c ratio
         /// can contain degree, ratio, cents, edostep, edxstep, hz, equave_up/down

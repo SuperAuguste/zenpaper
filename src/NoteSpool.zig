@@ -22,6 +22,8 @@ sample: u32 = 0,
 gates: [spool_voices]bool = @splat(false),
 frequencies: [spool_voices]f32 = @splat(0),
 
+done: bool = false,
+
 pub fn deinit(note_spool: *NoteSpool, allocator: std.mem.Allocator) void {
     note_spool.notes.deinit(allocator);
     note_spool.* = undefined;
@@ -39,6 +41,12 @@ pub fn debugPrint(note_spool: *const NoteSpool) void {
 
 pub fn tick(note_spool: *NoteSpool) @Vector(spool_voices, f32) {
     defer note_spool.sample += 1;
+
+    if (note_spool.playing >= note_spool.notes.len and
+        @reduce(.And, note_spool.adsr.envelopes < @as(@Vector(spool_voices, f32), @splat(0.001))))
+    {
+        @atomicStore(bool, &note_spool.done, true, .release);
+    }
 
     const slice_start = note_spool.playing;
     const slice_end = note_spool.playing + @min(spool_voices, note_spool.notes.len - note_spool.playing);

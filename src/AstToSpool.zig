@@ -235,29 +235,9 @@ fn firToSpoolInternal(fts: *FirToSpool) !void {
                         @intFromEnum(note_child_info.equave_exponent)),
                 );
             },
-            // .ratio => |ratio| {
-            //     _ = ratio; // autofix
-
-            // },
-
-            // .hold => {
-            //     fts.beat_division_modifier *= 2;
-            // },
-            // .rest => {
-            //     fts.sample_offset += fts.noteDurationInSamples();
-            //     fts.resetModifiers();
-            // },
-
-            // .cents: f32,
-            // .edostep: struct { edostep: u16, divisions: u16 },
-            // .edxstep: struct { edostep: u16, divisions: u16, equave: Fraction },
-            // .hz: f32,
-
-            // .multi_ratio_element: u16,
-            // .multi_ratio_shorthand: struct { start: u16, end: u16 },
-
-            // .equave_up => |n| fts.equave_modifier += @intFromEnum(n) + 1,
-            // .equave_down => fts.equave_modifier -= 1,
+            .rest => {
+                fts.sample_offset += fts.noteDurationInSamples(@enumFromInt(0));
+            },
 
             else => @panic("TODO"),
         }
