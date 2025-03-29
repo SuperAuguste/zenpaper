@@ -80,6 +80,7 @@ fn noteRatio(
 ) !f32 {
     return switch (data) {
         .degree => blk: {
+            assert(fts.scale_ratios.items.len != 0);
             const degree = try fts.parseIntFromToken(main_token.?);
             break :blk fts.scale_ratios.items[degree % fts.scale_ratios.items.len] *
                 std.math.pow(
@@ -91,6 +92,9 @@ fn noteRatio(
         .ratio => |info| blk: {
             const numerator: f32 = @floatFromInt(try fts.parseIntFromToken(main_token.?));
             const denominator: f32 = @floatFromInt(try fts.parseIntFromToken(info.extra.denominator));
+            if (denominator == 0) {
+                return error.SpoolError;
+            }
             break :blk numerator / denominator;
         },
         .cents => |info| blk: {
@@ -100,11 +104,17 @@ fn noteRatio(
         .edostep => |info| blk: {
             const edostep: f32 = @floatFromInt(try fts.parseIntFromToken(main_token.?));
             const divisions: f32 = @floatFromInt(try fts.parseIntFromToken(info.extra.divisions));
+            if (divisions == 0) {
+                return error.SpoolError;
+            }
             break :blk std.math.pow(f32, 2, edostep / divisions);
         },
         .edxstep => |info| blk: {
             const edostep: f32 = @floatFromInt(try fts.parseIntFromToken(main_token.?));
             const divisions: f32 = @floatFromInt(try fts.parseIntFromToken(info.extra.divisions));
+            if (divisions == 0) {
+                return error.SpoolError;
+            }
             const equave: f32 = try fts.fractionOrIntegerToFloat(info.extra.equave);
             break :blk std.math.pow(f32, equave, edostep / divisions);
         },
@@ -129,6 +139,49 @@ fn noteFrequency(
             std.math.pow(f32, fts.equave, @floatFromInt(@intFromEnum(equave_exponent))),
         else => unreachable,
     };
+}
+
+fn iterateMultiRatio(
+    fts: *const FirToSpool,
+    main_token: Token.Index,
+    data: @FieldType(Node.Data, "multi_ratio"),
+    context: anytype,
+    callback: anytype,
+) !void {
+    const base = try fts.parseIntFromToken(main_token);
+
+    if (base == 0) {
+        return error.SpoolError;
+    }
+
+    try callback(context, 1);
+
+    var previous = base;
+    for (data.extra.children) |part| {
+        switch (fts.ast.nodeTag(part)) {
+            .single_colon_multi_ratio_part => {
+                const numerator = try fts.parseIntFromToken(fts.ast.nodeMainToken(part).?);
+                previous = numerator;
+                try callback(context, @as(f32, @floatFromInt(numerator)) / @as(f32, @floatFromInt(base)));
+            },
+            .double_colon_multi_ratio_part => {
+                const end = try fts.parseIntFromToken(fts.ast.nodeMainToken(part).?);
+                defer previous = end;
+
+                if (previous < end) {
+                    for (previous..end) |numerator_minus_one| {
+                        try callback(context, @as(f32, @floatFromInt(numerator_minus_one + 1)) / @as(f32, @floatFromInt(base)));
+                    }
+                } else {
+                    var numerator = previous - 1;
+                    while (numerator >= end) : (numerator -= 1) {
+                        try callback(context, @as(f32, @floatFromInt(numerator)) / @as(f32, @floatFromInt(base)));
+                    }
+                }
+            },
+            else => unreachable,
+        }
+    }
 }
 
 fn noteDurationInSamples(fts: *const FirToSpool, note_length_modifier: NoteLengthModifier) u32 {
@@ -169,6 +222,41 @@ fn firToSpoolInternal(fts: *FirToSpool) !void {
                     const note_main_token = fts.ast.nodeMainToken(note);
                     const note_data = fts.ast.nodeData(note);
 
+                    if (note_data == .multi_ratio) {
+                        assert(chord_child_info.other_children.len == 1);
+
+                        const Context = struct {
+                            fts: *FirToSpool,
+                            chord_child_info: ChildInfo,
+                            start: u32,
+                            end: u32,
+
+                            fn callback(context: @This(), ratio: f32) !void {
+                                try context.fts.notes.append(context.fts.allocator, .{
+                                    .frequency = context.fts.root_frequency *
+                                        ratio *
+                                        std.math.pow(f32, context.fts.equave, @floatFromInt(@intFromEnum(context.chord_child_info.equave_exponent))),
+                                    .start = context.start,
+                                    .end = context.end,
+                                });
+                            }
+                        };
+
+                        try fts.iterateMultiRatio(
+                            note_main_token.?,
+                            note_data.multi_ratio,
+                            Context{
+                                .fts = fts,
+                                .chord_child_info = chord_child_info,
+                                .start = start,
+                                .end = end,
+                            },
+                            Context.callback,
+                        );
+
+                        break;
+                    }
+
                     const note_child_info = fts.childInfo(note_data.children().?);
                     assert(note_child_info.other_children.len == 0);
                     assert(@intFromEnum(note_child_info.note_length_modifier) == 0);
@@ -196,6 +284,40 @@ fn firToSpoolInternal(fts: *FirToSpool) !void {
                 for (scale_child_info.other_children) |note| {
                     const note_main_token = fts.ast.nodeMainToken(note);
                     const note_data = fts.ast.nodeData(note);
+
+                    if (note_data == .multi_ratio) {
+                        assert(scale_child_info.other_children.len == 1);
+
+                        const Context = struct {
+                            fts: *FirToSpool,
+                            scale_child_info: ChildInfo,
+                            new_scale_ratios: *std.ArrayListUnmanaged(f32),
+
+                            fn callback(context: @This(), ratio: f32) !void {
+                                try context.new_scale_ratios.append(
+                                    context.fts.allocator,
+                                    ratio * std.math.pow(
+                                        f32,
+                                        context.fts.equave,
+                                        @floatFromInt(@intFromEnum(context.scale_child_info.equave_exponent)),
+                                    ),
+                                );
+                            }
+                        };
+
+                        try fts.iterateMultiRatio(
+                            note_main_token.?,
+                            note_data.multi_ratio,
+                            Context{
+                                .fts = fts,
+                                .scale_child_info = scale_child_info,
+                                .new_scale_ratios = &new_scale_ratios,
+                            },
+                            Context.callback,
+                        );
+
+                        break;
+                    }
 
                     const note_child_info = fts.childInfo(note_data.children().?);
                     assert(note_child_info.other_children.len == 0);

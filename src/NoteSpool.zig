@@ -72,10 +72,10 @@ pub fn tick(note_spool: *NoteSpool) @Vector(spool_voices, f32) {
     ) * note_spool.adsr.tick(
         note_spool.sample_rate,
         .{
-            .attack_seconds = @splat(0.01),
-            .decay_seconds = @splat(0.001),
+            .attack_seconds = @splat(0.025),
+            .decay_seconds = @splat(0.005),
             .sustain_amps = @splat(0.8),
-            .release_seconds = @splat(0.01),
+            .release_seconds = @splat(0.025),
             .gates = note_spool.gates,
         },
     );

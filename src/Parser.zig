@@ -71,6 +71,18 @@ fn parseRootChild(parser: *Parser) !?Node.Index {
     const scratch_start = parser.pushScratch();
     try parser.parseNotePrefixes();
 
+    if (try parser.parseMultiRatio(scratch_start)) |node| {
+        try parser.appendNodeToScratch(node);
+        try parser.parseNoteSuffixes();
+        return try parser.appendNode(.{
+            .chord = .{
+                .extra = .{
+                    .children = @ptrCast(parser.popScratch(scratch_start)),
+                },
+            },
+        }, null);
+    }
+
     if (try parser.parseNote(.root, scratch_start)) |node| {
         return node;
     }
@@ -95,10 +107,13 @@ fn parseRootChild(parser: *Parser) !?Node.Index {
 fn parseChord(parser: *Parser, scratch_start: ScratchIndex) !Node.Index {
     const left_square = parser.assertToken(.left_square);
 
-    while (try parser.parseChordChild()) |node| {
+    if (try parser.parseMultiRatio(scratch_start)) |node| {
+        try parser.appendNodeToScratch(node);
+    } else while (try parser.parseChordChild()) |node| {
         try parser.appendNodeToScratch(node);
     }
 
+    _ = try parser.expectToken(.right_square);
     try parser.parseNoteSuffixes();
 
     return parser.appendNode(.{
@@ -120,7 +135,6 @@ fn parseChordChild(parser: *Parser) !?Node.Index {
 
     return switch (parser.peekTag(0)) {
         .right_square => {
-            _ = parser.nextToken();
             if (!parser.isScratchEmptyFrom(scratch_start)) {
                 return error.ParseError;
             }
@@ -157,14 +171,24 @@ fn parseRootFrequency(parser: *Parser, scratch_start: ScratchIndex) !Node.Index 
 fn parseScale(parser: *Parser, scratch_start: ScratchIndex) !Node.Index {
     const left_curly = parser.assertToken(.left_curly);
 
-    while (try parser.parseScaleChild()) |node| {
+    if (try parser.parseMultiRatio(scratch_start)) |node| {
+        try parser.appendNodeToScratch(node);
+    } else while (try parser.parseScaleChild()) |node| {
         try parser.appendNodeToScratch(node);
     }
+
+    const children: []const Node.Index = @ptrCast(parser.popScratch(scratch_start));
+
+    if (children.len == 0) {
+        return error.ParseError;
+    }
+
+    _ = try parser.expectToken(.right_curly);
 
     return parser.appendNode(.{
         .scale = .{
             .extra = .{
-                .children = @ptrCast(parser.popScratch(scratch_start)),
+                .children = children,
             },
         },
     }, left_curly);
@@ -180,7 +204,6 @@ fn parseScaleChild(parser: *Parser) !?Node.Index {
 
     return switch (parser.peekTag(0)) {
         .right_curly => {
-            _ = parser.nextToken();
             if (!parser.isScratchEmptyFrom(scratch_start)) {
                 return error.ParseError;
             }
@@ -555,26 +578,6 @@ fn parseFractionalHertz(
     }, whole_part_token);
 }
 
-fn parseMultiRatioElement(parser: *Parser) !void {
-    const integer_token = parser.assertToken(.integer);
-    try parser.appendInst(.{
-        .multi_ratio_element = try parser.parseInteger(integer_token),
-    }, integer_token);
-}
-
-fn parseMultiRatioShorthand(parser: *Parser) !void {
-    const start_token = parser.assertToken(.integer);
-    _ = parser.assertToken(.colon_colon);
-    const end_token = parser.assertToken(.integer);
-
-    try parser.appendInst(.{
-        .multi_ratio_shorthand = .{
-            .start = try parser.parseInteger(start_token),
-            .end = try parser.parseInteger(end_token),
-        },
-    }, start_token);
-}
-
 fn parseRest(parser: *Parser, scratch_start: ScratchIndex) !Node.Index {
     if (!parser.isScratchEmptyFrom(scratch_start)) {
         return error.ParseError;
@@ -582,6 +585,50 @@ fn parseRest(parser: *Parser, scratch_start: ScratchIndex) !Node.Index {
 
     const period_token = parser.assertToken(.period);
     return parser.appendNode(.rest, period_token);
+}
+
+fn parseMultiRatio(parser: *Parser, scratch_start: ScratchIndex) !?Node.Index {
+    switch (parser.peekTag(0)) {
+        .integer => switch (parser.peekTag(1)) {
+            .colon, .colon_colon => {},
+            else => return null,
+        },
+        else => return null,
+    }
+
+    const base_token = parser.assertToken(.integer);
+
+    while (try parser.parseMultiRatioPart()) |part| {
+        try parser.appendNodeToScratch(part);
+    }
+
+    return try parser.appendNode(.{
+        .multi_ratio = .{
+            .extra = .{
+                .children = @ptrCast(parser.popScratch(scratch_start)),
+            },
+        },
+    }, base_token);
+}
+
+fn parseMultiRatioPart(parser: *Parser) !?Node.Index {
+    return switch (parser.peekTag(0)) {
+        .colon => switch (parser.peekTag(1)) {
+            .integer => {
+                _ = parser.assertToken(.colon);
+                return try parser.appendNode(.single_colon_multi_ratio_part, parser.assertToken(.integer));
+            },
+            else => null,
+        },
+        .colon_colon => switch (parser.peekTag(1)) {
+            .integer => {
+                _ = parser.assertToken(.colon_colon);
+                return try parser.appendNode(.double_colon_multi_ratio_part, parser.assertToken(.integer));
+            },
+            else => null,
+        },
+        else => null,
+    };
 }
 
 fn nextToken(parser: *Parser) Token.Index {

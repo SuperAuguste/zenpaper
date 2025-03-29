@@ -45,15 +45,13 @@ zenpaper play my_tune.xp
 - [x] Rests
 - Chords
   - [x] Bracketed
-  - [ ] Ratios
-  - [ ] Shorthand ratio
+  - [x] Multi-ratios
 - Scales
   - [ ] Equal divisions of the octave
   - [ ] Equal divisions of the equave
   - [x] Individual pitches
   - [ ] Equave size specification
-  - [ ] Ratios
-  - [ ] Shorthand ratio
+  - [x] Multi-ratios
   - [ ] Modes
 - [x] Root frequency
 - Setters
@@ -71,6 +69,7 @@ zenpaper play my_tune.xp
 - Likewise, you can equave-shift scales; this uses the equave from before the new scale
 - The default root frequency is `220hz`. This is [actually what Xenpaper's root frequency is](https://github.com/dxinteractive/xenpaper/blob/4684a16be8f2ceaa387406ad5abc67c6862bc341/packages/xenpaper-ui/src/data/process-grammar.ts#L659) despite
 the docs saying otherwise, so this is not really a difference
+- Descending multi-ratios behave correctly (e.g. 3::1 and 3:2:1 are equivalent)
 
 You'll notice that the above differences are strict *additions*.
 
