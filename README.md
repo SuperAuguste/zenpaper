@@ -33,7 +33,7 @@ zenpaper play my_tune.xp
 ## Features
 
 - [x] Comments
-- Notes
+- [x] Notes
   - [x] Scale degrees
   - [x] Ratios
   - [x] Cents
@@ -43,10 +43,10 @@ zenpaper play my_tune.xp
   - [x] Equave shifts
   - [x] Holds
 - [x] Rests
-- Chords
+- [x] Chords
   - [x] Bracketed
   - [x] Multi-ratios
-- Scales
+- [ ] Scales
   - [ ] Equal divisions of the octave
   - [ ] Equal divisions of the equave
   - [x] Individual pitches
@@ -54,13 +54,19 @@ zenpaper play my_tune.xp
   - [x] Multi-ratios
   - [ ] Modes
 - [x] Root frequency
-- Setters
+- [ ] Setters
   - [ ] Tempo
   - [ ] Divisions of beat
   - [ ] Divisions of beat shorthand
   - [ ] Sound
+  - [ ] ADSR (envelope)
 - [ ] Ruler
-- [ ] Syntax highlighting
+- [ ] Error reporting
+  - [ ] Parsing
+  - [ ] AST to spool
+- [ ] Editor support
+  - [ ] Highlighting
+  - [ ] Frequency tooltips
 - [ ] Runtime highlighting
 
 ### Differences from Xenpaper

@@ -71,7 +71,7 @@ fn parseRootChild(parser: *Parser) !?Node.Index {
     const scratch_start = parser.pushScratch();
     try parser.parseNotePrefixes();
 
-    if (try parser.parseMultiRatio(scratch_start)) |node| {
+    if (try parser.parseMultiRatio()) |node| {
         try parser.appendNodeToScratch(node);
         try parser.parseNoteSuffixes();
         return try parser.appendNode(.{
@@ -107,7 +107,7 @@ fn parseRootChild(parser: *Parser) !?Node.Index {
 fn parseChord(parser: *Parser, scratch_start: ScratchIndex) !Node.Index {
     const left_square = parser.assertToken(.left_square);
 
-    if (try parser.parseMultiRatio(scratch_start)) |node| {
+    if (try parser.parseMultiRatio()) |node| {
         try parser.appendNodeToScratch(node);
     } else while (try parser.parseChordChild()) |node| {
         try parser.appendNodeToScratch(node);
@@ -171,7 +171,7 @@ fn parseRootFrequency(parser: *Parser, scratch_start: ScratchIndex) !Node.Index 
 fn parseScale(parser: *Parser, scratch_start: ScratchIndex) !Node.Index {
     const left_curly = parser.assertToken(.left_curly);
 
-    if (try parser.parseMultiRatio(scratch_start)) |node| {
+    if (try parser.parseMultiRatio()) |node| {
         try parser.appendNodeToScratch(node);
     } else while (try parser.parseScaleChild()) |node| {
         try parser.appendNodeToScratch(node);
@@ -261,22 +261,6 @@ fn parseNote(
                 },
                 else => try parser.parseDegree(scratch_start, note_suffix_behavior),
             },
-            // .colon => switch (parser.peekTag(2)) {
-            //     .integer => {
-            //         const chord_start = try parser.startChordNoToken();
-            //         continue :state_machine .{ .chord_ratio_no_square = .{ .chord_start = chord_start } };
-            //     },
-            //     else => return error.ParseError,
-            // },
-            // .colon_colon => switch (parser.peekTag(2)) {
-            //     .integer => {
-            //         const chord_start = try parser.startChordNoToken();
-            //         try parser.parseMultiRatioShorthand();
-            //         try parser.endChordNoToken(chord_start);
-            //         continue :state_machine .start;
-            //     },
-            //     else => return error.ParseError,
-            // },
             else => try parser.parseDegree(scratch_start, note_suffix_behavior),
         },
         else => null,
@@ -587,7 +571,9 @@ fn parseRest(parser: *Parser, scratch_start: ScratchIndex) !Node.Index {
     return parser.appendNode(.rest, period_token);
 }
 
-fn parseMultiRatio(parser: *Parser, scratch_start: ScratchIndex) !?Node.Index {
+fn parseMultiRatio(parser: *Parser) !?Node.Index {
+    const scratch_start = parser.pushScratch();
+
     switch (parser.peekTag(0)) {
         .integer => switch (parser.peekTag(1)) {
             .colon, .colon_colon => {},
