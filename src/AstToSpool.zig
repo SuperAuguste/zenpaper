@@ -279,6 +279,7 @@ fn firToSpoolInternal(fts: *FirToSpool) !void {
                 const scale_child_info = fts.childInfo(info.extra.children);
                 assert(@intFromEnum(scale_child_info.note_length_modifier) == 0);
 
+                // TODO: this leaks
                 var new_scale_ratios = try std.ArrayListUnmanaged(f32).initCapacity(fts.allocator, scale_child_info.other_children.len);
 
                 for (scale_child_info.other_children) |note| {
@@ -335,6 +336,18 @@ fn firToSpoolInternal(fts: *FirToSpool) !void {
 
                 // TODO: eww memory management
                 fts.scale_ratios.deinit(fts.allocator);
+                fts.scale_ratios = new_scale_ratios;
+            },
+            .scale_edo => {
+                const divisions = try fts.parseIntFromToken(main_token.?);
+
+                // TODO: this leaks
+                var new_scale_ratios = try std.ArrayListUnmanaged(f32).initCapacity(fts.allocator, divisions);
+
+                for (0..divisions) |index| {
+                    new_scale_ratios.appendAssumeCapacity(@exp2(@as(f32, @floatFromInt(index)) / @as(f32, @floatFromInt(divisions))));
+                }
+
                 fts.scale_ratios = new_scale_ratios;
             },
             .root_frequency => |info| {

@@ -171,7 +171,21 @@ fn parseRootFrequency(parser: *Parser, scratch_start: ScratchIndex) !Node.Index 
 fn parseScale(parser: *Parser, scratch_start: ScratchIndex) !Node.Index {
     const left_curly = parser.assertToken(.left_curly);
 
-    if (try parser.parseMultiRatio()) |node| {
+    if (switch (parser.peekTag(0)) {
+        .integer => switch (parser.peekTag(1)) {
+            .keyword_edo => blk: {
+                const divisions_token = parser.assertToken(.integer);
+                _ = parser.assertToken(.keyword_edo);
+
+                break :blk try parser.appendNode(.scale_edo, divisions_token);
+            },
+            else => null,
+        },
+        else => null,
+    }) |node| {
+        _ = parser.assertToken(.right_curly);
+        return node;
+    } else if (try parser.parseMultiRatio()) |node| {
         try parser.appendNodeToScratch(node);
     } else while (try parser.parseScaleChild()) |node| {
         try parser.appendNodeToScratch(node);

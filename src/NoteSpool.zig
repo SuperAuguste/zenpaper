@@ -4,6 +4,15 @@ const NoteSpool = @This();
 
 const spool_voices = 16;
 
+pub const Envelope = packed struct(u16) {
+    pub const Value = enum(u4) { @"0", @"1", @"2", @"3", @"4", @"5", @"6", @"7", @"8", @"9" };
+
+    attack: Value,
+    delay: Value,
+    sustain: Value,
+    release: Value,
+};
+
 pub const Note = struct {
     start: u32,
     end: u32,
@@ -66,16 +75,19 @@ pub fn tick(note_spool: *NoteSpool) @Vector(spool_voices, f32) {
         note_spool.frequencies[index % spool_voices] = frequency;
     }
 
+    const env_values = [_]f32{ 0, 0.003, 0.006, 0.01, 0.033, 0.1, 0.33, 1, 3.3, 10 };
+
+    // default 2856
     return note_spool.sin.tick(
         note_spool.sample_rate,
         note_spool.frequencies,
     ) * note_spool.adsr.tick(
         note_spool.sample_rate,
         .{
-            .attack_seconds = @splat(0.025),
-            .decay_seconds = @splat(0.005),
-            .sustain_amps = @splat(0.8),
-            .release_seconds = @splat(0.025),
+            .attack_seconds = @splat(env_values[2]),
+            .decay_seconds = @splat(env_values[8]),
+            .sustain_amps = @splat(5.0 / 9.0),
+            .release_seconds = @splat(env_values[6]),
             .gates = note_spool.gates,
         },
     );

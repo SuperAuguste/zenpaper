@@ -109,6 +109,8 @@ fn play(allocator: std.mem.Allocator, args: *std.process.ArgIterator) !u8 {
     return 0;
 }
 
+const amplitude_adjustment = std.math.pow(f32, 10, -18.0 / 20.0);
+
 fn realtime(
     input_channels: [0][]const f32,
     output_channels: [2][]f32,
@@ -119,7 +121,7 @@ fn realtime(
     const left, const right = output_channels;
 
     for (left, right) |*l, *r| {
-        const mono = @reduce(.Add, note_spool.tick()) * 0.25;
+        const mono = @reduce(.Add, note_spool.tick()) * 0.15;
         l.* = mono;
         r.* = mono;
     }
