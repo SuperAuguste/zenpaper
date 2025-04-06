@@ -81,30 +81,30 @@ fn play(allocator: std.mem.Allocator, args: *std.process.ArgIterator) !u8 {
 
     ast.debugPrintNode(&tokens, .root, 0);
 
-    var note_spool = try AstToSpool.astToSpool(allocator, source, &tokens, &ast, 48_000);
-    defer note_spool.deinit(allocator);
+    // var note_spool = try AstToSpool.astToSpool(allocator, source, &tokens, &ast, 48_000);
+    // defer note_spool.deinit(allocator);
 
-    note_spool.debugPrint();
+    // note_spool.debugPrint();
 
-    try PortAudio.init();
-    defer PortAudio.deinit();
+    // try PortAudio.init();
+    // defer PortAudio.deinit();
 
-    const stream = try PortAudio.openDefaultStream(
-        NoteSpool,
-        .{
-            .input_channels = 0,
-            .output_channels = 2,
-            .sample_format = .f32,
-        },
-        realtime,
-        48_000,
-        &note_spool,
-    );
-    try stream.start();
+    // const stream = try PortAudio.openDefaultStream(
+    //     NoteSpool,
+    //     .{
+    //         .input_channels = 0,
+    //         .output_channels = 2,
+    //         .sample_format = .f32,
+    //     },
+    //     realtime,
+    //     48_000,
+    //     &note_spool,
+    // );
+    // try stream.start();
 
-    while (!@atomicLoad(bool, &note_spool.done, .acquire)) {}
+    // while (!@atomicLoad(bool, &note_spool.done, .acquire)) {}
 
-    try stream.stop();
+    // try stream.stop();
 
     return 0;
 }

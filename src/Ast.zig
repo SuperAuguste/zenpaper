@@ -49,45 +49,25 @@ pub const Node = struct {
         fraction: struct { denominator: Token.Index },
 
         /// main_token is the degree
-        degree: struct { extra: struct {
-            children: []const Node.Index,
-        } },
+        degree,
         /// main_token is the numerator
-        ratio: struct { extra: struct {
-            denominator: Token.Index,
-            children: []const Node.Index,
-        } },
+        ratio: struct { denominator: Token.Index },
         /// main_token is the whole part
-        cents: struct { extra: struct {
-            fractional_part: ?Token.Index,
-            children: []const Node.Index,
-        } },
+        cents: struct { fractional_part: Token.OptionalIndex },
         /// main_token is the edostep
-        edostep: struct { extra: struct {
-            divisions: Token.Index,
-            children: []const Node.Index,
-        } },
+        edostep: struct { divisions: Token.Index },
         /// main_token is the edostep
         /// equave is an integer or a fraction
-        edxstep: struct { extra: struct {
-            divisions: Token.Index,
-            equave: Node.Index,
-            children: []const Node.Index,
-        } },
+        edxstep: struct { divisions: Token.Index, equave: Node.Index },
         /// main_token is the whole part
-        hz: struct { extra: struct {
-            fractional_part: ?Token.Index,
-            children: []const Node.Index,
-        } },
+        hz: struct { fractional_part: Token.OptionalIndex },
 
-        /// main_token is single_quote
-        equave_up_one,
-        /// main_token is double_quote
-        equave_up_two,
-        /// main_token is backtick
-        equave_down,
-        /// main_token is dash
-        hold,
+        /// main_token is first equave shift
+        /// child may be a note, chord, or scale
+        equave_shifted: struct { equave_shift: i32, child: Node.Index },
+        /// main_token is first dash
+        /// child may be a note, chord, or equave_shifted
+        held: struct { holds: u32, child: Node.Index },
 
         /// main_token is period
         rest,
@@ -100,7 +80,7 @@ pub const Node = struct {
 
         /// main_token is the ratio base
         /// can contain single_colon_multi_ratio_part, double_colon_multi_ratio_part
-        multi_ratio: struct { extra: struct {
+        chord_multi_ratio: struct { extra: struct {
             children: []const Node.Index,
         } },
 
@@ -115,6 +95,11 @@ pub const Node = struct {
             children: []const Node.Index,
         } },
 
+        /// main_token is the ratio base
+        /// can contain single_colon_multi_ratio_part, double_colon_multi_ratio_part
+        scale_multi_ratio: struct { extra: struct {
+            children: []const Node.Index,
+        } },
         /// main_token is the number of divisions
         scale_edo,
         /// main_token is the number of divisions
@@ -122,9 +107,7 @@ pub const Node = struct {
         scale_edx: struct { equave: Node.Index },
 
         /// main_token is keyword_r
-        root_frequency: struct { extra: struct {
-            children: []const Node.Index,
-        } },
+        root_frequency: struct { child: Node.Index },
 
         // TODO: Currently wasteful as we store start and end + lengths within extra.
         // We could make things more flexible or switch to start only with a 32-bit .untagged_data.
@@ -157,14 +140,21 @@ pub const Node = struct {
             });
         };
 
-        pub fn children(data: *const Node.Data) ?[]const Node.Index {
+        pub fn children(data: *const Node.Data, buffer: *[1]Node.Index) ?[]const Node.Index {
             switch (data.*) {
                 inline else => |*value| {
                     const T = @TypeOf(value.*);
-                    return if (@typeInfo(T) == .@"struct" and @hasField(T, "extra"))
-                        value.extra.children
-                    else
-                        null;
+
+                    if (@typeInfo(T) == .@"struct") {
+                        if (@hasField(T, "extra")) {
+                            return value.extra.children;
+                        } else if (@hasField(T, "child")) {
+                            buffer[0] = value.child;
+                            return buffer;
+                        }
+                    }
+
+                    return null;
                 },
             }
         }
@@ -218,15 +208,8 @@ pub fn nodeDataFromUntagged(ast: *const Ast, tag: Node.Tag, untagged: Node.Data.
 
                 inline for (std.meta.fields(@TypeOf(extra))) |field| {
                     switch (field.type) {
-                        Token.Index, Node.Index => {
+                        Token.Index, Node.Index, Token.OptionalIndex => {
                             @field(extra, field.name) = @enumFromInt(slice[index]);
-                            index += 1;
-                        },
-                        ?Token.Index => {
-                            @field(extra, field.name) = @as(
-                                Token.OptionalIndex,
-                                @enumFromInt(slice[index]),
-                            ).unwrap();
                             index += 1;
                         },
                         []const Node.Index => {
@@ -258,7 +241,8 @@ pub fn debugPrintNode(
     for (0..indent) |_| std.debug.print("  ", .{});
 
     const data = ast.nodeData(node);
-    const maybe_children = data.children();
+    var child_buffer: [1]Node.Index = undefined;
+    const maybe_children = data.children(&child_buffer);
 
     std.debug.print("{s}", .{@tagName(data)});
 
