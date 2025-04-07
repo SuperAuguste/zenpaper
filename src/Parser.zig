@@ -175,6 +175,16 @@ fn parseScale(parser: *Parser) !Node.Index {
     switch (parser.peekTag(0)) {
         .integer => switch (parser.peekTag(1)) {
             .keyword_edo => return try parser.parseScaleEdo(),
+            .keyword_ed => switch (parser.peekTag(2)) {
+                .integer => switch (parser.peekTag(3)) {
+                    .slash => switch (parser.peekTag(4)) {
+                        .integer => return try parser.parseScaleEdxWholeEquave(),
+                        else => {},
+                    },
+                    else => return try parser.parseScaleEdxWholeEquave(),
+                },
+                else => {},
+            },
             .colon, .colon_colon => return try parser.parseMultiRatio(.scale),
             else => {},
         },
@@ -224,6 +234,30 @@ fn parseScaleEdo(parser: *Parser) !Node.Index {
     _ = try parser.expectToken(.right_curly);
 
     return try parser.appendNode(.scale_edo, divisions_token);
+}
+
+fn parseScaleEdxWholeEquave(parser: *Parser) !Node.Index {
+    const divisions_token = parser.assertToken(.integer);
+    _ = parser.assertToken(.keyword_ed);
+    const equave = try parser.parseInteger();
+    parser.skipWhitespace();
+    _ = try parser.expectToken(.right_curly);
+
+    return try parser.appendNode(.{
+        .scale_edx = .{ .equave = equave },
+    }, divisions_token);
+}
+
+fn parseScaleEdxFractionEquave(parser: *Parser) !Node.Index {
+    const divisions_token = parser.assertToken(.integer);
+    _ = parser.assertToken(.keyword_ed);
+    const equave = try parser.parseFraction();
+    parser.skipWhitespace();
+    _ = try parser.expectToken(.right_curly);
+
+    return try parser.appendNode(.{
+        .scale_edx = .{ .equave = equave },
+    }, divisions_token);
 }
 
 fn parseRootFrequency(parser: *Parser) !Node.Index {

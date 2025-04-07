@@ -47,8 +47,8 @@ zenpaper play my_tune.xp
   - [x] Bracketed
   - [x] Multi-ratios
 - [ ] Scales
-  - [ ] Equal divisions of the octave
-  - [ ] Equal divisions of the equave
+  - [x] Equal divisions of the octave
+  - [x] Equal divisions of the equave
   - [x] Individual pitches
   - [ ] Equave size specification
   - [x] Multi-ratios

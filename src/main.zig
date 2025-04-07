@@ -81,10 +81,10 @@ fn play(allocator: std.mem.Allocator, args: *std.process.ArgIterator) !u8 {
 
     ast.debugPrintNode(&tokens, .root, 0);
 
-    // var note_spool = try AstToSpool.astToSpool(allocator, source, &tokens, &ast, 48_000);
-    // defer note_spool.deinit(allocator);
+    var note_spool = try AstToSpool.astToSpool(allocator, source, &tokens, &ast, 48_000);
+    defer note_spool.deinit(allocator);
 
-    // note_spool.debugPrint();
+    note_spool.debugPrint();
 
     // try PortAudio.init();
     // defer PortAudio.deinit();
