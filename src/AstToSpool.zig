@@ -314,6 +314,34 @@ fn astToSpoolInternal(ast_to_spool: *AstToSpool) !void {
                 ast_to_spool.scale_ratios = new_scale_ratios;
                 ast_to_spool.equave = equave;
             },
+            .scale_mode => |info| {
+                assert(@intFromEnum(root_child_modifiers.length_modifier) == 0);
+
+                var new_scale_ratios = try std.ArrayListUnmanaged(f32).initCapacity(
+                    ast_to_spool.allocator,
+                    info.children.len,
+                );
+                errdefer new_scale_ratios.deinit(ast_to_spool.allocator);
+
+                var degree: u32 = 0;
+                for (info.children) |scale_child| {
+                    if (degree >= ast_to_spool.scale_ratios.items.len) {
+                        return error.SpoolError;
+                    }
+
+                    const ratio = ast_to_spool.scale_ratios.items[degree];
+                    new_scale_ratios.appendAssumeCapacity(ratio *
+                        std.math.pow(f32, ast_to_spool.equave, @floatFromInt(@intFromEnum(root_child_modifiers.equave_exponent))));
+                    degree += try ast_to_spool.parseIntFromToken(ast_to_spool.ast.nodeMainToken(scale_child).?);
+                }
+
+                if (degree != ast_to_spool.scale_ratios.items.len) {
+                    return error.SpoolError;
+                }
+
+                ast_to_spool.scale_ratios.deinit(ast_to_spool.allocator);
+                ast_to_spool.scale_ratios = new_scale_ratios;
+            },
             .scale_multi_ratio => |info| {
                 assert(@intFromEnum(root_child_modifiers.length_modifier) == 0);
 

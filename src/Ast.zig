@@ -98,6 +98,7 @@ pub const Node = struct {
         /// main_token is the number of divisions
         /// equave is an integer or a fraction
         scale_edx: struct { equave: Node.Index },
+        scale_mode: struct { children: []const Node.Index },
 
         /// main_token is keyword_r
         root_frequency: struct { child: Node.Index },

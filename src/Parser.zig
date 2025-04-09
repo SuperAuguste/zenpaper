@@ -171,6 +171,7 @@ fn parseScale(parser: *Parser) !Node.Index {
     parser.skipWhitespace();
 
     switch (parser.peekTag(0)) {
+        .keyword_m => return try parser.parseScaleMode(),
         .integer => switch (parser.peekTag(1)) {
             .keyword_edo => return try parser.parseScaleEdo(),
             .keyword_ed => switch (parser.peekTag(2)) {
@@ -231,6 +232,27 @@ fn parseScaleChild(parser: *Parser) !?Node.Index {
         .right_curly => return null,
         else => return error.ParseError,
     };
+}
+
+fn parseScaleMode(parser: *Parser) !Node.Index {
+    const scratch_start = parser.pushScratch();
+    const mode_token = parser.assertToken(.keyword_m);
+    parser.skipWhitespace();
+
+    try parser.appendNodeToScratch(try parser.parseInteger());
+
+    while (parser.peekTag(0) != .right_curly) {
+        _ = try parser.expectToken(.whitespace);
+        try parser.appendNodeToScratch(try parser.parseInteger());
+    }
+
+    _ = parser.assertToken(.right_curly);
+
+    return try parser.appendNode(.{
+        .scale_mode = .{
+            .children = @ptrCast(parser.popScratch(scratch_start)),
+        },
+    }, mode_token);
 }
 
 fn parseScaleEdo(parser: *Parser) !Node.Index {
