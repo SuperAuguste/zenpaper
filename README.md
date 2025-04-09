@@ -1,8 +1,18 @@
+<!-- omit in toc -->
 # zenpaper
 
-Very WIP.
+A work-in-progress CLI implementation of [xenpaper](https://github.com/dxinteractive/xenpaper) written in Zig.
 
-A Zig implementation of [xenpaper](https://github.com/dxinteractive/xenpaper). [Check out the original!](https://dxinteractive.github.io/xenpaper/)
+[Check out the original!](https://dxinteractive.github.io/xenpaper/)
+
+<!-- omit in toc -->
+## Table of Contents
+
+- [Installation](#installation)
+- [Usage](#usage)
+- [Features](#features)
+  - [Differences from Xenpaper](#differences-from-xenpaper)
+- [License](#license)
 
 ## Installation
 
@@ -50,7 +60,7 @@ zenpaper play my_tune.xp
   - [x] Equal divisions of the octave
   - [x] Equal divisions of the equave
   - [x] Individual pitches
-  - [ ] Equave size specification
+  - [x] Equave specification
   - [x] Multi-ratios
   - [ ] Modes
 - [x] Root frequency
@@ -72,17 +82,12 @@ zenpaper play my_tune.xp
 ### Differences from Xenpaper
 
 - You can equave-shift chords, so something like `'1:2:3` or `"[0 3 5]` is permissible
-- Likewise, you can equave-shift scales; this uses the equave from before the new scale
+- Likewise, you can equave-shift scales; this uses the equave from before the new scale and is also
+  applied to the new equave
 - The default root frequency is `220hz`. This is [actually what Xenpaper's root frequency is](https://github.com/dxinteractive/xenpaper/blob/4684a16be8f2ceaa387406ad5abc67c6862bc341/packages/xenpaper-ui/src/data/process-grammar.ts#L659) despite
 the docs saying otherwise, so this is not really a difference
 - Descending multi-ratios behave correctly (e.g. 3::1 and 3:2:1 are equivalent)
-
-You'll notice that the above differences are strict *additions*.
-
-It may be wise to consider reworking the language grammar at a point in the future (potentially
-breaking backwards compatibility) for simplicity of implementation and usage. Here's an example 
-of a slightly awkward ambiguity (in my opinion): `1.2.3` vs `1.2.3hz` where the first statement is
-semantically equivalent to `1 . 2 . 3` and the second to `1 . 2.3hz`.
+- The last degree of a mode must complete the equave
 
 ## License
 

@@ -196,19 +196,20 @@ fn noteStartEndInSamples(ast_to_spool: *AstToSpool, length_modifier: LengthModif
 }
 
 fn astToSpoolInternal(ast_to_spool: *AstToSpool) !void {
-    for (ast_to_spool.ast.nodeData(.root).root.extra.children) |held_and_equave_shifted_child| {
-        const held_and_equave_shifted = ast_to_spool.heldAndEquaveShifted(held_and_equave_shifted_child);
-        const length_modifier = held_and_equave_shifted.length_modifier;
-        const equave_exponent = held_and_equave_shifted.equave_exponent;
-        const child = held_and_equave_shifted.child;
+    for (ast_to_spool.ast.nodeData(.root).root.extra.children) |root_child_modified| {
+        const root_child_modifiers, const root_child = ast_to_spool.extractModifiers(root_child_modified);
 
-        const main_token = ast_to_spool.ast.nodeMainToken(child);
-        const data = ast_to_spool.ast.nodeData(child);
+        const root_child_main_token = ast_to_spool.ast.nodeMainToken(root_child);
+        const root_child_data = ast_to_spool.ast.nodeData(root_child);
 
-        switch (data) {
+        switch (root_child_data) {
             .degree, .ratio, .cents, .edostep, .edxstep, .hz => {
-                const frequency = try ast_to_spool.noteFrequency(main_token, data, equave_exponent);
-                const start, const end = ast_to_spool.noteStartEndInSamples(length_modifier);
+                const frequency = try ast_to_spool.noteFrequency(
+                    root_child_main_token,
+                    root_child_data,
+                    root_child_modifiers.equave_exponent,
+                );
+                const start, const end = ast_to_spool.noteStartEndInSamples(root_child_modifiers.length_modifier);
 
                 try ast_to_spool.notes.append(ast_to_spool.allocator, .{
                     .frequency = frequency,
@@ -217,23 +218,20 @@ fn astToSpoolInternal(ast_to_spool: *AstToSpool) !void {
                 });
             },
             .chord => |info| {
-                const start, const end = ast_to_spool.noteStartEndInSamples(length_modifier);
+                const start, const end = ast_to_spool.noteStartEndInSamples(root_child_modifiers.length_modifier);
 
-                for (info.extra.children) |held_and_equave_shifted_note| {
-                    const note_held_and_equave_shifted = ast_to_spool.heldAndEquaveShifted(held_and_equave_shifted_note);
-                    const note_length_modifier = note_held_and_equave_shifted.length_modifier;
-                    const note_equave_exponent = note_held_and_equave_shifted.equave_exponent;
-                    const note = note_held_and_equave_shifted.child;
-                    const note_main_token = ast_to_spool.ast.nodeMainToken(note);
-                    const note_data = ast_to_spool.ast.nodeData(note);
+                for (info.extra.children) |chord_child_modified| {
+                    const chord_child_modifiers, const chord_child = ast_to_spool.extractModifiers(chord_child_modified);
+                    const chord_child_main_token = ast_to_spool.ast.nodeMainToken(chord_child);
+                    const chord_child_data = ast_to_spool.ast.nodeData(chord_child);
 
-                    assert(@intFromEnum(note_length_modifier) == 0);
+                    assert(@intFromEnum(chord_child_modifiers.length_modifier) == 0);
 
                     const frequency = try ast_to_spool.noteFrequency(
-                        note_main_token,
-                        note_data,
-                        @enumFromInt(@intFromEnum(note_equave_exponent) +
-                            @intFromEnum(equave_exponent)),
+                        chord_child_main_token,
+                        chord_child_data,
+                        @enumFromInt(@intFromEnum(chord_child_modifiers.equave_exponent) +
+                            @intFromEnum(root_child_modifiers.equave_exponent)),
                     );
 
                     try ast_to_spool.notes.append(ast_to_spool.allocator, .{
@@ -244,7 +242,7 @@ fn astToSpoolInternal(ast_to_spool: *AstToSpool) !void {
                 }
             },
             .chord_multi_ratio => |info| {
-                const start, const end = ast_to_spool.noteStartEndInSamples(length_modifier);
+                const start, const end = ast_to_spool.noteStartEndInSamples(root_child_modifiers.length_modifier);
 
                 const Context = struct {
                     ast_to_spool: *AstToSpool,
@@ -264,11 +262,11 @@ fn astToSpoolInternal(ast_to_spool: *AstToSpool) !void {
                 };
 
                 try ast_to_spool.iterateMultiRatio(
-                    main_token.?,
+                    root_child_main_token.?,
                     info,
                     Context{
                         .ast_to_spool = ast_to_spool,
-                        .equave_exponent = equave_exponent,
+                        .equave_exponent = root_child_modifiers.equave_exponent,
                         .start = start,
                         .end = end,
                     },
@@ -276,7 +274,7 @@ fn astToSpoolInternal(ast_to_spool: *AstToSpool) !void {
                 );
             },
             .scale => |info| {
-                assert(@intFromEnum(length_modifier) == 0);
+                assert(@intFromEnum(root_child_modifiers.length_modifier) == 0);
 
                 // TODO: Smarter scale ratios memory management
                 // Maybe a two buffer technique?
@@ -286,21 +284,27 @@ fn astToSpoolInternal(ast_to_spool: *AstToSpool) !void {
                 );
                 errdefer new_scale_ratios.deinit(ast_to_spool.allocator);
 
-                for (info.extra.children) |held_and_equave_shifted_note| {
-                    const note_held_and_equave_shifted = ast_to_spool.heldAndEquaveShifted(held_and_equave_shifted_note);
-                    const note_length_modifier = note_held_and_equave_shifted.length_modifier;
-                    const note_equave_exponent = note_held_and_equave_shifted.equave_exponent;
-                    const note = note_held_and_equave_shifted.child;
-                    const note_main_token = ast_to_spool.ast.nodeMainToken(note);
-                    const note_data = ast_to_spool.ast.nodeData(note);
+                const equave = if (info.extra.equave.unwrap()) |equave|
+                    try ast_to_spool.noteRatio(
+                        ast_to_spool.ast.nodeMainToken(equave),
+                        ast_to_spool.ast.nodeData(equave),
+                        root_child_modifiers.equave_exponent,
+                    )
+                else
+                    ast_to_spool.equave;
 
-                    assert(@intFromEnum(note_length_modifier) == 0);
+                for (info.extra.children) |scale_child_modified| {
+                    const scale_child_modifiers, const scale_child = ast_to_spool.extractModifiers(scale_child_modified);
+                    const scale_child_main_token = ast_to_spool.ast.nodeMainToken(scale_child);
+                    const scale_child_data = ast_to_spool.ast.nodeData(scale_child);
+
+                    assert(@intFromEnum(scale_child_modifiers.length_modifier) == 0);
 
                     const ratio = try ast_to_spool.noteRatio(
-                        note_main_token,
-                        note_data,
-                        @enumFromInt(@intFromEnum(note_equave_exponent) +
-                            @intFromEnum(equave_exponent)),
+                        scale_child_main_token,
+                        scale_child_data,
+                        @enumFromInt(@intFromEnum(scale_child_modifiers.equave_exponent) +
+                            @intFromEnum(root_child_modifiers.equave_exponent)),
                     );
 
                     new_scale_ratios.appendAssumeCapacity(ratio);
@@ -308,9 +312,10 @@ fn astToSpoolInternal(ast_to_spool: *AstToSpool) !void {
 
                 ast_to_spool.scale_ratios.deinit(ast_to_spool.allocator);
                 ast_to_spool.scale_ratios = new_scale_ratios;
+                ast_to_spool.equave = equave;
             },
             .scale_multi_ratio => |info| {
-                assert(@intFromEnum(length_modifier) == 0);
+                assert(@intFromEnum(root_child_modifiers.length_modifier) == 0);
 
                 const Context = struct {
                     ast_to_spool: *AstToSpool,
@@ -336,11 +341,11 @@ fn astToSpoolInternal(ast_to_spool: *AstToSpool) !void {
                 errdefer new_scale_ratios.deinit(ast_to_spool.allocator);
 
                 try ast_to_spool.iterateMultiRatio(
-                    main_token.?,
+                    root_child_main_token.?,
                     info,
                     Context{
                         .ast_to_spool = ast_to_spool,
-                        .equave_exponent = equave_exponent,
+                        .equave_exponent = root_child_modifiers.equave_exponent,
                         .new_scale_ratios = &new_scale_ratios,
                     },
                     Context.callback,
@@ -350,26 +355,28 @@ fn astToSpoolInternal(ast_to_spool: *AstToSpool) !void {
                 ast_to_spool.scale_ratios = new_scale_ratios;
             },
             .scale_edo => {
-                assert(@intFromEnum(length_modifier) == 0);
+                assert(@intFromEnum(root_child_modifiers.length_modifier) == 0);
 
-                const divisions = try ast_to_spool.parseIntFromToken(main_token.?);
+                ast_to_spool.equave = 2;
+
+                const divisions = try ast_to_spool.parseIntFromToken(root_child_main_token.?);
 
                 ast_to_spool.scale_ratios.clearRetainingCapacity();
                 try ast_to_spool.scale_ratios.ensureTotalCapacity(ast_to_spool.allocator, divisions);
 
                 for (0..divisions) |index| {
                     ast_to_spool.scale_ratios.appendAssumeCapacity(@exp2(
-                        @as(f32, @floatFromInt(@intFromEnum(equave_exponent))) +
+                        @as(f32, @floatFromInt(@intFromEnum(root_child_modifiers.equave_exponent))) +
                             @as(f32, @floatFromInt(index)) / @as(f32, @floatFromInt(divisions)),
                     ));
                 }
             },
             .scale_edx => |info| {
-                assert(@intFromEnum(length_modifier) == 0);
+                assert(@intFromEnum(root_child_modifiers.length_modifier) == 0);
 
                 ast_to_spool.equave = try ast_to_spool.fractionOrIntegerToFloat(info.equave);
 
-                const divisions = try ast_to_spool.parseIntFromToken(main_token.?);
+                const divisions = try ast_to_spool.parseIntFromToken(root_child_main_token.?);
 
                 ast_to_spool.scale_ratios.clearRetainingCapacity();
                 try ast_to_spool.scale_ratios.ensureTotalCapacity(ast_to_spool.allocator, divisions);
@@ -378,28 +385,25 @@ fn astToSpoolInternal(ast_to_spool: *AstToSpool) !void {
                     ast_to_spool.scale_ratios.appendAssumeCapacity(std.math.pow(
                         f32,
                         ast_to_spool.equave,
-                        @as(f32, @floatFromInt(@intFromEnum(equave_exponent))) +
+                        @as(f32, @floatFromInt(@intFromEnum(root_child_modifiers.equave_exponent))) +
                             @as(f32, @floatFromInt(index)) / @as(f32, @floatFromInt(divisions)),
                     ));
                 }
             },
             .root_frequency => |info| {
-                assert(@intFromEnum(length_modifier) == 0);
+                assert(@intFromEnum(root_child_modifiers.length_modifier) == 0);
 
-                const note_held_and_equave_shifted = ast_to_spool.heldAndEquaveShifted(info.child);
-                const note_length_modifier = note_held_and_equave_shifted.length_modifier;
-                const note_equave_exponent = note_held_and_equave_shifted.equave_exponent;
-                const note = note_held_and_equave_shifted.child;
+                const note_modifiers, const note = ast_to_spool.extractModifiers(info.child);
                 const note_main_token = ast_to_spool.ast.nodeMainToken(note);
                 const note_data = ast_to_spool.ast.nodeData(note);
 
-                assert(@intFromEnum(note_length_modifier) == 0);
+                assert(@intFromEnum(note_modifiers.length_modifier) == 0);
 
                 ast_to_spool.root_frequency = try ast_to_spool.noteFrequency(
                     note_main_token,
                     note_data,
-                    @enumFromInt(@intFromEnum(equave_exponent) +
-                        @intFromEnum(note_equave_exponent)),
+                    @enumFromInt(@intFromEnum(root_child_modifiers.equave_exponent) +
+                        @intFromEnum(note_modifiers.equave_exponent)),
                 );
             },
             .rest => {
@@ -428,29 +432,34 @@ fn parseFloatFromTokens(
     return std.fmt.parseFloat(f32, ast_to_spool.source[start..end]);
 }
 
-const HeldAndEquaveShifted = struct {
+const Modifiers = struct {
     length_modifier: LengthModifier = @enumFromInt(0),
     equave_exponent: EquaveExponent = @enumFromInt(0),
-    child: Node.Index,
 };
 
-fn heldAndEquaveShifted(ast_to_spool: *const AstToSpool, node: Node.Index) HeldAndEquaveShifted {
+fn extractModifiers(ast_to_spool: *const AstToSpool, node: Node.Index) struct { Modifiers, Node.Index } {
     return switch (ast_to_spool.ast.nodeData(node)) {
         .held => |held_info| switch (ast_to_spool.ast.nodeData(held_info.child)) {
             .equave_shifted => |equave_shifted_info| .{
-                .length_modifier = @enumFromInt(held_info.holds),
-                .equave_exponent = @enumFromInt(equave_shifted_info.equave_shift),
-                .child = equave_shifted_info.child,
+                .{
+                    .length_modifier = @enumFromInt(held_info.holds),
+                    .equave_exponent = @enumFromInt(equave_shifted_info.equave_shift),
+                },
+                equave_shifted_info.child,
             },
             else => .{
-                .length_modifier = @enumFromInt(held_info.holds),
-                .child = held_info.child,
+                .{
+                    .length_modifier = @enumFromInt(held_info.holds),
+                },
+                held_info.child,
             },
         },
         .equave_shifted => |equave_shifted_info| .{
-            .equave_exponent = @enumFromInt(equave_shifted_info.equave_shift),
-            .child = equave_shifted_info.child,
+            .{
+                .equave_exponent = @enumFromInt(equave_shifted_info.equave_shift),
+            },
+            equave_shifted_info.child,
         },
-        else => .{ .child = node },
+        else => .{ .{}, node },
     };
 }

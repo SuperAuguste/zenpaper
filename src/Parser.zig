@@ -125,7 +125,6 @@ fn parseRootChild(parser: *Parser) !?Node.Index {
 fn parseChord(parser: *Parser) !Node.Index {
     const scratch_start = parser.pushScratch();
     const left_square = parser.assertToken(.left_square);
-    parser.skipWhitespace();
 
     switch (parser.peekTag(0)) {
         .integer => switch (parser.peekTag(1)) {
@@ -137,11 +136,14 @@ fn parseChord(parser: *Parser) !Node.Index {
         else => {},
     }
 
-    while (try parser.parseChordChild()) |node| {
-        try parser.appendNodeToScratch(node);
+    try parser.appendNodeToScratch(try parser.parseChordChild() orelse return error.ParseError);
+
+    while (parser.peekTag(0) != .right_square) {
+        _ = try parser.expectToken(.whitespace);
+        try parser.appendNodeToScratch(try parser.parseChordChild() orelse return error.ParseError);
     }
 
-    _ = try parser.expectToken(.right_square);
+    _ = parser.assertToken(.right_square);
 
     return parser.appendNode(.{
         .chord = .{
@@ -191,22 +193,32 @@ fn parseScale(parser: *Parser) !Node.Index {
         else => {},
     }
 
-    while (try parser.parseScaleChild()) |node| {
-        try parser.appendNodeToScratch(node);
+    try parser.appendNodeToScratch(try parser.parseScaleChild() orelse return error.ParseError);
+
+    var equave: ?Node.Index = null;
+
+    while (parser.peekTag(0) != .right_curly) {
+        _ = try parser.expectToken(.whitespace);
+        const child = try parser.parseScaleChild() orelse return error.ParseError;
+        switch (parser.peekTag(0)) {
+            .single_quote => switch (parser.peekTag(1)) {
+                .right_curly => {
+                    _ = parser.assertToken(.single_quote);
+                    equave = child;
+                },
+                else => return error.ParseError,
+            },
+            else => try parser.appendNodeToScratch(child),
+        }
     }
 
-    const children: []const Node.Index = @ptrCast(parser.popScratch(scratch_start));
-
-    if (children.len == 0) {
-        return error.ParseError;
-    }
-
-    _ = try parser.expectToken(.right_curly);
+    _ = parser.assertToken(.right_curly);
 
     return parser.appendNode(.{
         .scale = .{
             .extra = .{
-                .children = children,
+                .equave = .wrap(equave),
+                .children = @ptrCast(parser.popScratch(scratch_start)),
             },
         },
     }, left_curly);
@@ -646,8 +658,7 @@ fn expectToken(parser: *Parser, tag: Token.Tag) !Token.Index {
 }
 
 fn skipWhitespace(parser: *Parser) void {
-    _ = parser.eatToken(.whitespace);
-    std.debug.assert(parser.peekTag(0) != .whitespace);
+    while (parser.eatToken(.whitespace)) |_| {}
 }
 
 fn assertToken(parser: *Parser, tag: Token.Tag) Token.Index {
@@ -686,7 +697,7 @@ fn appendNode(parser: *Parser, data: Node.Data, main_token: ?Token.Index) !Node.
                     const start: Ast.ExtraIndex = @enumFromInt(parser.extra.items.len);
                     inline for (std.meta.fields(@TypeOf(extra))) |field| {
                         switch (field.type) {
-                            Token.Index, Node.Index, Token.OptionalIndex => try parser.extra.append(
+                            Token.Index, Node.Index, Token.OptionalIndex, Node.OptionalIndex => try parser.extra.append(
                                 parser.allocator,
                                 @intFromEnum(@field(extra, field.name)),
                             ),

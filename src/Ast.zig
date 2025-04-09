@@ -92,6 +92,7 @@ pub const Node = struct {
         /// main_token is left_curly
         /// can contain degree, ratio, cents, edostep, edxstep, equave_up/down
         scale: struct { extra: struct {
+            equave: Node.OptionalIndex,
             children: []const Node.Index,
         } },
 
@@ -139,25 +140,6 @@ pub const Node = struct {
                 },
             });
         };
-
-        pub fn children(data: *const Node.Data, buffer: *[1]Node.Index) ?[]const Node.Index {
-            switch (data.*) {
-                inline else => |*value| {
-                    const T = @TypeOf(value.*);
-
-                    if (@typeInfo(T) == .@"struct") {
-                        if (@hasField(T, "extra")) {
-                            return value.extra.children;
-                        } else if (@hasField(T, "child")) {
-                            buffer[0] = value.child;
-                            return buffer;
-                        }
-                    }
-
-                    return null;
-                },
-            }
-        }
     };
 
     comptime {
@@ -208,7 +190,7 @@ pub fn nodeDataFromUntagged(ast: *const Ast, tag: Node.Tag, untagged: Node.Data.
 
                 inline for (std.meta.fields(@TypeOf(extra))) |field| {
                     switch (field.type) {
-                        Token.Index, Node.Index, Token.OptionalIndex => {
+                        Token.Index, Node.Index, Token.OptionalIndex, Node.OptionalIndex => {
                             @field(extra, field.name) = @enumFromInt(slice[index]);
                             index += 1;
                         },
@@ -241,8 +223,6 @@ pub fn debugPrintNode(
     for (0..indent) |_| std.debug.print("  ", .{});
 
     const data = ast.nodeData(node);
-    var child_buffer: [1]Node.Index = undefined;
-    const maybe_children = data.children(&child_buffer);
 
     std.debug.print("{s}", .{@tagName(data)});
 
@@ -251,12 +231,29 @@ pub fn debugPrintNode(
         std.debug.print(" {d}..{d}", .{ range.start, range.end });
     }
 
-    if (maybe_children) |children| {
-        std.debug.print(" ({d} children)\n", .{children.len});
-        for (children) |child| {
-            ast.debugPrintNode(tokens, child, indent + 1);
-        }
-    } else {
-        std.debug.print("\n", .{});
+    switch (data) {
+        inline else => |value| blk: {
+            const T = @TypeOf(value);
+
+            if (@typeInfo(T) == .@"struct") {
+                if (@hasField(T, "extra")) {
+                    std.debug.print(" ({d} children)\n", .{value.extra.children.len});
+                    for (value.extra.children) |child| {
+                        ast.debugPrintNode(tokens, child, indent + 1);
+                    }
+                    break :blk;
+                } else if (@hasField(T, "child")) {
+                    std.debug.print("child:\n", .{});
+                    ast.debugPrintNode(tokens, value.child, indent + 1);
+                    break :blk;
+                } else if (@hasField(T, "equave")) {
+                    std.debug.print("equave:\n", .{});
+                    ast.debugPrintNode(tokens, value.equave, indent + 1);
+                    break :blk;
+                }
+            }
+
+            std.debug.print("\n", .{});
+        },
     }
 }
