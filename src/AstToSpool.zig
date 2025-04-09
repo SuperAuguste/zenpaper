@@ -157,7 +157,7 @@ fn iterateMultiRatio(
     try callback(context, 1);
 
     var previous = base;
-    for (data.extra.children) |part| {
+    for (data.children) |part| {
         switch (ast_to_spool.ast.nodeTag(part)) {
             .single_colon_multi_ratio_part => {
                 const numerator = try ast_to_spool.parseIntFromToken(ast_to_spool.ast.nodeMainToken(part).?);
@@ -196,7 +196,7 @@ fn noteStartEndInSamples(ast_to_spool: *AstToSpool, length_modifier: LengthModif
 }
 
 fn astToSpoolInternal(ast_to_spool: *AstToSpool) !void {
-    for (ast_to_spool.ast.nodeData(.root).root.extra.children) |root_child_modified| {
+    for (ast_to_spool.ast.nodeData(.root).root.children) |root_child_modified| {
         const root_child_modifiers, const root_child = ast_to_spool.extractModifiers(root_child_modified);
 
         const root_child_main_token = ast_to_spool.ast.nodeMainToken(root_child);
@@ -220,7 +220,7 @@ fn astToSpoolInternal(ast_to_spool: *AstToSpool) !void {
             .chord => |info| {
                 const start, const end = ast_to_spool.noteStartEndInSamples(root_child_modifiers.length_modifier);
 
-                for (info.extra.children) |chord_child_modified| {
+                for (info.children) |chord_child_modified| {
                     const chord_child_modifiers, const chord_child = ast_to_spool.extractModifiers(chord_child_modified);
                     const chord_child_main_token = ast_to_spool.ast.nodeMainToken(chord_child);
                     const chord_child_data = ast_to_spool.ast.nodeData(chord_child);
@@ -280,11 +280,11 @@ fn astToSpoolInternal(ast_to_spool: *AstToSpool) !void {
                 // Maybe a two buffer technique?
                 var new_scale_ratios = try std.ArrayListUnmanaged(f32).initCapacity(
                     ast_to_spool.allocator,
-                    info.extra.children.len,
+                    info.children.len,
                 );
                 errdefer new_scale_ratios.deinit(ast_to_spool.allocator);
 
-                const equave = if (info.extra.equave.unwrap()) |equave|
+                const equave = if (info.equave.unwrap()) |equave|
                     try ast_to_spool.noteRatio(
                         ast_to_spool.ast.nodeMainToken(equave),
                         ast_to_spool.ast.nodeData(equave),
@@ -293,7 +293,7 @@ fn astToSpoolInternal(ast_to_spool: *AstToSpool) !void {
                 else
                     ast_to_spool.equave;
 
-                for (info.extra.children) |scale_child_modified| {
+                for (info.children) |scale_child_modified| {
                     const scale_child_modifiers, const scale_child = ast_to_spool.extractModifiers(scale_child_modified);
                     const scale_child_main_token = ast_to_spool.ast.nodeMainToken(scale_child);
                     const scale_child_data = ast_to_spool.ast.nodeData(scale_child);
@@ -336,7 +336,7 @@ fn astToSpoolInternal(ast_to_spool: *AstToSpool) !void {
 
                 var new_scale_ratios = try std.ArrayListUnmanaged(f32).initCapacity(
                     ast_to_spool.allocator,
-                    info.extra.children.len,
+                    info.children.len,
                 );
                 errdefer new_scale_ratios.deinit(ast_to_spool.allocator);
 

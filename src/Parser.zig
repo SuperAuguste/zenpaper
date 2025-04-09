@@ -40,9 +40,7 @@ pub fn parse(
 fn parseInternal(parser: *Parser) !void {
     const root = try parser.appendNode(.{
         .root = .{
-            .extra = .{
-                .children = &.{},
-            },
+            .children = &.{},
         },
     }, null);
     std.debug.assert(root == .root);
@@ -147,9 +145,7 @@ fn parseChord(parser: *Parser) !Node.Index {
 
     return parser.appendNode(.{
         .chord = .{
-            .extra = .{
-                .children = @ptrCast(parser.popScratch(scratch_start)),
-            },
+            .children = @ptrCast(parser.popScratch(scratch_start)),
         },
     }, left_square);
 }
@@ -216,10 +212,8 @@ fn parseScale(parser: *Parser) !Node.Index {
 
     return parser.appendNode(.{
         .scale = .{
-            .extra = .{
-                .equave = .wrap(equave),
-                .children = @ptrCast(parser.popScratch(scratch_start)),
-            },
+            .equave = .wrap(equave),
+            .children = @ptrCast(parser.popScratch(scratch_start)),
         },
     }, left_curly);
 }
@@ -596,9 +590,7 @@ fn parseMultiRatio(parser: *Parser, comptime mode: enum { raw_chord, chord, scal
             .scale => "scale_multi_ratio",
         },
         .{
-            .extra = .{
-                .children = @ptrCast(parser.popScratch(scratch_start)),
-            },
+            .children = @ptrCast(parser.popScratch(scratch_start)),
         },
     ), base_token);
 }
@@ -690,25 +682,24 @@ fn appendNode(parser: *Parser, data: Node.Data, main_token: ?Token.Index) !Node.
             inline else => |value, tag| blk: {
                 const T = @TypeOf(value);
 
-                if (@typeInfo(T) != .@"struct" or !@hasField(T, "extra")) {
+                if (@bitSizeOf(T) <= 64) {
                     break :blk @unionInit(Node.Data.Untagged, @tagName(tag), value);
                 } else {
-                    const extra = @field(value, "extra");
                     const start: Ast.ExtraIndex = @enumFromInt(parser.extra.items.len);
-                    inline for (std.meta.fields(@TypeOf(extra))) |field| {
+                    inline for (std.meta.fields(T)) |field| {
                         switch (field.type) {
                             Token.Index, Node.Index, Token.OptionalIndex, Node.OptionalIndex => try parser.extra.append(
                                 parser.allocator,
-                                @intFromEnum(@field(extra, field.name)),
+                                @intFromEnum(@field(value, field.name)),
                             ),
                             []const Node.Index => {
                                 try parser.extra.append(
                                     parser.allocator,
-                                    @intCast(@field(extra, field.name).len),
+                                    @intCast(@field(value, field.name).len),
                                 );
                                 try parser.extra.appendSlice(
                                     parser.allocator,
-                                    @ptrCast(@field(extra, field.name)),
+                                    @ptrCast(@field(value, field.name)),
                                 );
                             },
                             else => @compileError("TODO: " ++ @typeName(field.type)),

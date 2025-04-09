@@ -37,9 +37,7 @@ pub const Node = struct {
     pub const Tag = std.meta.Tag(Data);
     pub const Data = union(enum(u8)) {
         /// main_token is none
-        root: struct { extra: struct {
-            children: []const Node.Index,
-        } },
+        root: struct { children: []const Node.Index },
 
         /// main_token is an integer
         /// semantically distinct from degree
@@ -74,15 +72,11 @@ pub const Node = struct {
 
         /// main_token is left_square or none in the case of an unwrapped multi_ratio
         /// can contain degree, ratio, cents, edostep, edxstep, hz, equave_up/down, multi_ratio
-        chord: struct { extra: struct {
-            children: []const Node.Index,
-        } },
+        chord: struct { children: []const Node.Index },
 
         /// main_token is the ratio base
         /// can contain single_colon_multi_ratio_part, double_colon_multi_ratio_part
-        chord_multi_ratio: struct { extra: struct {
-            children: []const Node.Index,
-        } },
+        chord_multi_ratio: struct { children: []const Node.Index },
 
         /// main_token is integer
         single_colon_multi_ratio_part,
@@ -91,16 +85,14 @@ pub const Node = struct {
 
         /// main_token is left_curly
         /// can contain degree, ratio, cents, edostep, edxstep, equave_up/down
-        scale: struct { extra: struct {
+        scale: struct {
             equave: Node.OptionalIndex,
             children: []const Node.Index,
-        } },
+        },
 
         /// main_token is the ratio base
         /// can contain single_colon_multi_ratio_part, double_colon_multi_ratio_part
-        scale_multi_ratio: struct { extra: struct {
-            children: []const Node.Index,
-        } },
+        scale_multi_ratio: struct { children: []const Node.Index },
         /// main_token is the number of divisions
         scale_edo,
         /// main_token is the number of divisions
@@ -112,12 +104,13 @@ pub const Node = struct {
 
         // TODO: Currently wasteful as we store start and end + lengths within extra.
         // We could make things more flexible or switch to start only with a 32-bit .untagged_data.
-        fn ExtraToExtraSlice(comptime T: type) type {
+        fn MoveOversizedToExtra(comptime T: type) type {
             return switch (@typeInfo(T)) {
-                .@"struct" => |info| {
-                    if (!@hasField(T, "extra")) return T;
-                    comptime std.debug.assert(info.fields.len == 1);
-                    return ExtraSlice;
+                .@"struct" => |_| {
+                    return if (@bitSizeOf(T) > 64)
+                        ExtraSlice
+                    else
+                        T;
                 },
                 else => T,
             };
@@ -128,7 +121,8 @@ pub const Node = struct {
             var dst_fields: [src_fields.len]std.builtin.Type.UnionField = src_fields[0..src_fields.len].*;
 
             for (&dst_fields) |*field| {
-                field.type = ExtraToExtraSlice(field.type);
+                field.type = MoveOversizedToExtra(field.type);
+                std.debug.assert(@bitSizeOf(field.type) <= 64);
             }
 
             break :blk @Type(.{
@@ -177,34 +171,35 @@ pub fn nodeUntaggedData(ast: *const Ast, node: Node.Index) Node.Data.Untagged {
 pub fn nodeDataFromUntagged(ast: *const Ast, tag: Node.Tag, untagged: Node.Data.Untagged) Node.Data {
     return switch (tag) {
         inline else => |actual_tag| {
-            const data = @field(untagged, @tagName(actual_tag));
-            const T = @TypeOf(data);
+            const untagged_data = @field(untagged, @tagName(actual_tag));
+            const Untagged = @TypeOf(untagged_data);
+            const Tagged = @FieldType(Node.Data, @tagName(actual_tag));
 
-            if (T != ExtraSlice) {
-                return @unionInit(Node.Data, @tagName(actual_tag), data);
+            if (Untagged != ExtraSlice) {
+                return @unionInit(Node.Data, @tagName(actual_tag), untagged_data);
             } else {
-                var extra: @TypeOf(@field(@field(@as(Node.Data, undefined), @tagName(actual_tag)), "extra")) = undefined;
-
                 var index: u32 = 0;
-                const slice = ast.extra[@intFromEnum(data.start)..@intFromEnum(data.end)];
+                const slice = ast.extra[@intFromEnum(untagged_data.start)..@intFromEnum(untagged_data.end)];
 
-                inline for (std.meta.fields(@TypeOf(extra))) |field| {
+                var data: Tagged = undefined;
+
+                inline for (std.meta.fields(Tagged)) |field| {
                     switch (field.type) {
                         Token.Index, Node.Index, Token.OptionalIndex, Node.OptionalIndex => {
-                            @field(extra, field.name) = @enumFromInt(slice[index]);
+                            @field(data, field.name) = @enumFromInt(slice[index]);
                             index += 1;
                         },
                         []const Node.Index => {
                             const len = slice[index];
                             index += 1;
-                            @field(extra, field.name) = @ptrCast(slice[index..][0..len]);
+                            @field(data, field.name) = @ptrCast(slice[index..][0..len]);
                             index += len;
                         },
                         else => @compileError("TODO: " ++ @typeName(field.type)),
                     }
                 }
 
-                return @unionInit(Node.Data, @tagName(actual_tag), .{ .extra = extra });
+                return @unionInit(Node.Data, @tagName(actual_tag), data);
             }
         },
     };
@@ -228,32 +223,43 @@ pub fn debugPrintNode(
 
     if (ast.nodeMainToken(node)) |main_token| {
         const range = tokens.range(main_token);
-        std.debug.print(" {d}..{d}", .{ range.start, range.end });
+        std.debug.print(" {d}..{d}\n", .{ range.start, range.end });
+    } else {
+        std.debug.print("\n", .{});
     }
 
     switch (data) {
-        inline else => |value| blk: {
+        inline else => |value| {
             const T = @TypeOf(value);
 
             if (@typeInfo(T) == .@"struct") {
-                if (@hasField(T, "extra")) {
-                    std.debug.print(" ({d} children)\n", .{value.extra.children.len});
-                    for (value.extra.children) |child| {
-                        ast.debugPrintNode(tokens, child, indent + 1);
+                inline for (std.meta.fields(T)) |field| {
+                    switch (field.type) {
+                        Node.Index => {
+                            const child = @field(value, field.name);
+                            for (0..indent + 1) |_| std.debug.print("  ", .{});
+                            std.debug.print("{s}:\n", .{field.name});
+                            ast.debugPrintNode(tokens, child, indent + 2);
+                        },
+                        Node.OptionalIndex => {
+                            if (@field(value, field.name).unwrap()) |child| {
+                                for (0..indent + 1) |_| std.debug.print("  ", .{});
+                                std.debug.print("{s}:\n", .{field.name});
+                                ast.debugPrintNode(tokens, child, indent + 2);
+                            }
+                        },
+                        []const Node.Index => {
+                            const children = @field(value, field.name);
+                            for (0..indent + 1) |_| std.debug.print("  ", .{});
+                            std.debug.print("{s} ({d}):\n", .{ field.name, children.len });
+                            for (children) |child| {
+                                ast.debugPrintNode(tokens, child, indent + 2);
+                            }
+                        },
+                        else => {},
                     }
-                    break :blk;
-                } else if (@hasField(T, "child")) {
-                    std.debug.print("child:\n", .{});
-                    ast.debugPrintNode(tokens, value.child, indent + 1);
-                    break :blk;
-                } else if (@hasField(T, "equave")) {
-                    std.debug.print("equave:\n", .{});
-                    ast.debugPrintNode(tokens, value.equave, indent + 1);
-                    break :blk;
                 }
             }
-
-            std.debug.print("\n", .{});
         },
     }
 }
