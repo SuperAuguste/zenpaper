@@ -14,12 +14,14 @@ token_index: Token.Index = @enumFromInt(0),
 
 nodes: std.MultiArrayList(Node) = .{},
 extra: std.ArrayListUnmanaged(u32) = .{},
+errors: std.ArrayListUnmanaged(Ast.Error) = .{},
+
 scratch: std.ArrayListUnmanaged(u32) = .{},
 
 pub fn parse(
     allocator: std.mem.Allocator,
     tokens: *const Tokens,
-) !Ast {
+) error{OutOfMemory}!Ast {
     var parser = Parser{
         .allocator = allocator,
         .tokens = tokens,
@@ -28,12 +30,25 @@ pub fn parse(
         parser.scratch.deinit(allocator);
     }
 
-    try parser.parseInternal();
+    parser.parseInternal() catch |err| switch (err) {
+        error.ParseError => {
+            std.debug.assert(parser.errors.items.len > 0);
+            return .{
+                .nodes = parser.nodes.toOwnedSlice(),
+                .extra = try parser.extra.toOwnedSlice(allocator),
+                .errors = try parser.errors.toOwnedSlice(allocator),
+            };
+        },
+        error.OutOfMemory => return error.OutOfMemory,
+    };
+
     std.debug.assert(parser.scratch.items.len == 0);
+    std.debug.assert(parser.errors.items.len == 0);
 
     return .{
         .nodes = parser.nodes.toOwnedSlice(),
         .extra = try parser.extra.toOwnedSlice(allocator),
+        .errors = &.{},
     };
 }
 
@@ -48,8 +63,11 @@ fn parseInternal(parser: *Parser) !void {
     const scratch_start = parser.pushScratch();
     try parser.scratch.append(parser.allocator, 0);
 
-    while (try parser.parseRootChild()) |node| {
-        try parser.appendNodeToScratch(node);
+    parser.skipWhitespace();
+
+    while (parser.peekTag(0) != .eof) {
+        try parser.appendNodeToScratch(try parser.parseRootChild());
+        parser.skipWhitespace();
     }
 
     const extra_start = parser.extra.items.len;
@@ -65,13 +83,10 @@ fn parseInternal(parser: *Parser) !void {
     };
 }
 
-fn parseRootChild(parser: *Parser) !?Node.Index {
-    parser.skipWhitespace();
-
+fn parseRootChild(parser: *Parser) !Node.Index {
     const start_equave_shifted_optional = try parser.startEquaveShifted();
 
     switch (parser.peekTag(0)) {
-        .period => return try parser.parseRest(),
         .left_square => {
             return try parser.couldHold(
                 try parser.couldHaveEquaveShifted(
@@ -103,19 +118,22 @@ fn parseRootChild(parser: *Parser) !?Node.Index {
             },
             else => {},
         },
-        .eof => {
-            return if (start_equave_shifted_optional) |_|
-                error.ParseError
-            else
-                null;
+        .period => {
+            if (start_equave_shifted_optional) |_| {
+                try parser.appendExpectedTagsError(parser.token_index, .{.integer});
+                return error.ParseError;
+            }
+
+            return try parser.parseRest();
         },
+        .eof => unreachable,
         else => {},
     }
 
     return try parser.couldHold(
         try parser.couldHaveEquaveShifted(
             start_equave_shifted_optional,
-            try parser.parseNote(.absolute_allowed) orelse return error.ParseError,
+            try parser.parseNote(.absolute_allowed),
         ),
     );
 }
@@ -134,11 +152,11 @@ fn parseChord(parser: *Parser) !Node.Index {
         else => {},
     }
 
-    try parser.appendNodeToScratch(try parser.parseChordChild() orelse return error.ParseError);
+    try parser.appendNodeToScratch(try parser.parseChordChild());
 
     while (parser.peekTag(0) != .right_square) {
         _ = try parser.expectToken(.whitespace);
-        try parser.appendNodeToScratch(try parser.parseChordChild() orelse return error.ParseError);
+        try parser.appendNodeToScratch(try parser.parseChordChild());
     }
 
     _ = parser.assertToken(.right_square);
@@ -150,25 +168,19 @@ fn parseChord(parser: *Parser) !Node.Index {
     }, left_square);
 }
 
-fn parseChordChild(parser: *Parser) !?Node.Index {
+fn parseChordChild(parser: *Parser) !Node.Index {
     parser.skipWhitespace();
 
     const start_equave_shifted_optional = try parser.startEquaveShifted();
-
-    if (try parser.parseNote(.absolute_allowed)) |node| {
-        return try parser.couldHaveEquaveShifted(start_equave_shifted_optional, node);
-    }
-
-    return switch (parser.peekTag(0)) {
-        .right_square => null,
-        else => return error.ParseError,
-    };
+    return parser.couldHaveEquaveShifted(
+        start_equave_shifted_optional,
+        try parser.parseNote(.absolute_allowed),
+    );
 }
 
 fn parseScale(parser: *Parser) !Node.Index {
     const scratch_start = parser.pushScratch();
     const left_curly = parser.assertToken(.left_curly);
-    parser.skipWhitespace();
 
     switch (parser.peekTag(0)) {
         .keyword_m => return try parser.parseScaleMode(),
@@ -190,20 +202,23 @@ fn parseScale(parser: *Parser) !Node.Index {
         else => {},
     }
 
-    try parser.appendNodeToScratch(try parser.parseScaleChild() orelse return error.ParseError);
-
-    var equave: ?Node.Index = null;
+    try parser.appendNodeToScratch(try parser.parseScaleChild());
 
     while (parser.peekTag(0) != .right_curly) {
         _ = try parser.expectToken(.whitespace);
-        const child = try parser.parseScaleChild() orelse return error.ParseError;
+        const child = try parser.parseScaleChild();
+
         switch (parser.peekTag(0)) {
-            .single_quote => switch (parser.peekTag(1)) {
-                .right_curly => {
-                    _ = parser.assertToken(.single_quote);
-                    equave = child;
-                },
-                else => return error.ParseError,
+            .single_quote => {
+                _ = parser.assertToken(.single_quote);
+                _ = try parser.expectToken(.right_curly);
+
+                return parser.appendNode(.{
+                    .scale = .{
+                        .equave = .wrap(child),
+                        .children = @ptrCast(parser.popScratch(scratch_start)),
+                    },
+                }, left_curly);
             },
             else => try parser.appendNodeToScratch(child),
         }
@@ -213,25 +228,20 @@ fn parseScale(parser: *Parser) !Node.Index {
 
     return parser.appendNode(.{
         .scale = .{
-            .equave = .wrap(equave),
+            .equave = .none,
             .children = @ptrCast(parser.popScratch(scratch_start)),
         },
     }, left_curly);
 }
 
-fn parseScaleChild(parser: *Parser) !?Node.Index {
+fn parseScaleChild(parser: *Parser) !Node.Index {
     parser.skipWhitespace();
 
     const start_equave_shifted_optional = try parser.startEquaveShifted();
-
-    if (try parser.parseNote(.relative_only)) |node| {
-        return try parser.couldHaveEquaveShifted(start_equave_shifted_optional, node);
-    }
-
-    return switch (parser.peekTag(0)) {
-        .right_curly => return null,
-        else => return error.ParseError,
-    };
+    return parser.couldHaveEquaveShifted(
+        start_equave_shifted_optional,
+        try parser.parseNote(.relative_only),
+    );
 }
 
 fn parseScaleMode(parser: *Parser) !Node.Index {
@@ -296,9 +306,8 @@ fn parseRootFrequency(parser: *Parser) !Node.Index {
 
     const child = try parser.couldHaveEquaveShifted(
         start_equave_shifted_optional,
-        try parser.parseNote(.absolute_allowed) orelse return error.ParseError,
+        try parser.parseNote(.absolute_allowed),
     );
-    parser.skipWhitespace();
 
     _ = try parser.expectToken(.right_curly);
 
@@ -312,12 +321,12 @@ fn parseRootFrequency(parser: *Parser) !Node.Index {
 fn parseNote(
     parser: *Parser,
     comptime mode: enum { absolute_allowed, relative_only },
-) !?Node.Index {
+) !Node.Index {
     return switch (parser.peekTag(0)) {
         .integer => switch (parser.peekTag(1)) {
             .slash => switch (parser.peekTag(2)) {
                 .integer => try parser.parseRatio(),
-                else => return error.ParseError,
+                else => try parser.parseDegree(),
             },
             .backslash => switch (parser.peekTag(2)) {
                 .integer => switch (parser.peekTag(3)) {
@@ -325,26 +334,26 @@ fn parseNote(
                         .integer => switch (parser.peekTag(5)) {
                             .slash => switch (parser.peekTag(6)) {
                                 .integer => try parser.parseEdxstepFractionalEquave(),
-                                else => return error.ParseError,
+                                else => try parser.parseDegree(),
                             },
                             else => try parser.parseEdxstepWholeEquave(),
                         },
-                        else => return error.ParseError,
+                        else => try parser.parseDegree(),
                     },
                     else => try parser.parseEdostep(),
                 },
-                else => return error.ParseError,
+                else => try parser.parseDegree(),
             },
             .keyword_c => try parser.parseWholeCents(),
             .keyword_hz => switch (mode) {
-                .relative_only => return error.ParseError,
+                .relative_only => try parser.parseDegree(),
                 else => try parser.parseWholeHertz(),
             },
             .period => switch (parser.peekTag(2)) {
                 .integer => switch (parser.peekTag(3)) {
                     .keyword_c => try parser.parseFractionalCents(),
                     .keyword_hz => switch (mode) {
-                        .relative_only => return error.ParseError,
+                        .relative_only => try parser.parseDegree(),
                         else => try parser.parseFractionalHertz(),
                     },
                     else => try parser.parseDegree(),
@@ -353,7 +362,10 @@ fn parseNote(
             },
             else => try parser.parseDegree(),
         },
-        else => null,
+        else => {
+            try parser.appendExpectedTagsError(parser.token_index, .{.integer});
+            return error.ParseError;
+        },
     };
 }
 
@@ -379,7 +391,10 @@ fn startEquaveShifted(parser: *Parser) !?StartEquaveShifted {
                 switch (parser.peekTag(0)) {
                     .single_quote => equave_shift += 1,
                     .double_quote => equave_shift += 2,
-                    .backtick => return error.ParseError,
+                    .backtick => {
+                        try parser.appendExpectedTagsError(parser.token_index, .{ .single_quote, .double_quote });
+                        return error.ParseError;
+                    },
                     else => break,
                 }
                 _ = parser.nextToken();
@@ -392,7 +407,10 @@ fn startEquaveShifted(parser: *Parser) !?StartEquaveShifted {
             while (true) {
                 switch (parser.peekTag(0)) {
                     .backtick => equave_shift -= 1,
-                    .single_quote, .double_quote => return error.ParseError,
+                    .single_quote, .double_quote => {
+                        try parser.appendExpectedTagsError(parser.token_index, .{.backtick});
+                        return error.ParseError;
+                    },
                     else => break,
                 }
                 _ = parser.nextToken();
@@ -597,8 +615,6 @@ fn parseMultiRatio(parser: *Parser, comptime mode: enum { raw_chord, chord, scal
         try parser.appendNodeToScratch(part);
     }
 
-    parser.skipWhitespace();
-
     switch (mode) {
         .raw_chord => {},
         .chord => _ = try parser.expectToken(.right_square),
@@ -644,8 +660,6 @@ fn nextToken(parser: *Parser) Token.Index {
     return token_index;
 }
 
-/// Assumes that overflows are impossible as a peekTag(0) == .eof
-/// will always stop a peekTag(1). Dubious assumption? Perhaps.
 fn peekTag(parser: *Parser, n: usize) Token.Tag {
     const index = @intFromEnum(parser.token_index) + n;
     return parser.tokens.tag(@enumFromInt(index));
@@ -662,13 +676,26 @@ fn expectToken(parser: *Parser, tag: Token.Tag) !Token.Index {
     return if (parser.eatToken(tag)) |token|
         token
     else {
-        // try parser.errors.append(parser.allocator, .{
-        //     .tag = .expected_tag,
-        //     .token = next_token,
-        //     .data = .{ .expected_tag = tag },
-        // });
+        try parser.appendExpectedTagsError(parser.token_index, .{tag});
         return error.ParseError;
     };
+}
+
+fn appendExpectedTagsError(parser: *Parser, token: Token.Index, tags: anytype) !void {
+    if (tags.len == 1) {
+        try parser.errors.append(parser.allocator, .{
+            .tag = .expected_tag,
+            .token = token,
+            .data = .{ .expected_tag = tags[0] },
+        });
+    } else {
+        const name = std.fmt.comptimePrint("expected_tags_{d}", .{tags.len});
+        try parser.errors.append(parser.allocator, .{
+            .tag = @field(Ast.Error.Tag, name),
+            .token = token,
+            .data = @unionInit(Ast.Error.Data, name, tags),
+        });
+    }
 }
 
 fn skipWhitespace(parser: *Parser) void {

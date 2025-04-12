@@ -36,6 +36,8 @@ pub fn astToSpool(
     ast: *const Ast,
     sample_rate: f32,
 ) !NoteSpool {
+    assert(ast.errors.len == 0);
+
     var ast_to_spool = AstToSpool{
         .allocator = allocator,
         .source = source,

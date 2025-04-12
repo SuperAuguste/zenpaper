@@ -106,6 +106,10 @@ pub const Token = struct {
         colon_colon,
 
         eof,
+
+        comptime {
+            std.debug.assert(@sizeOf(Tag) == 1);
+        }
     };
 };
 

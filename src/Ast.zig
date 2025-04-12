@@ -148,12 +148,60 @@ pub const Node = struct {
     untagged_data: Data.Untagged,
 };
 
+pub const Error = struct {
+    pub const Tag = enum(u8) {
+        expected_tag,
+        expected_tags_2,
+    };
+
+    pub const Data = union {
+        none: void,
+        expected_tag: Token.Tag,
+        expected_tags_2: [2]Token.Tag,
+    };
+
+    tag: Tag,
+    token: Token.Index,
+    data: Data,
+
+    pub fn render(
+        @"error": Error,
+        tokens: *const Tokenizer.Tokens,
+        writer: anytype,
+    ) @TypeOf(writer).Error!void {
+        switch (@"error".tag) {
+            .expected_tag => {
+                try writer.print("expected {s}, found {s}\n", .{
+                    @tagName(@"error".data.expected_tag), @tagName(tokens.tag(@"error".token)),
+                });
+            },
+            inline .expected_tags_2 => |tag| {
+                const data = @field(@"error".data, @tagName(tag));
+
+                try writer.writeAll("expected ");
+
+                for (data[0 .. data.len - 2]) |data_tag| {
+                    try writer.print("{s} ", .{@tagName(data_tag)});
+                }
+
+                try writer.print("{s} or {s}, found {s}\n", .{
+                    @tagName(data[data.len - 2]),
+                    @tagName(data[data.len - 1]),
+                    @tagName(tokens.tag(@"error".token)),
+                });
+            },
+        }
+    }
+};
+
 nodes: std.MultiArrayList(Node).Slice,
 extra: []const u32,
+errors: []const Error,
 
 pub fn deinit(ast: *Ast, allocator: std.mem.Allocator) void {
     ast.nodes.deinit(allocator);
     allocator.free(ast.extra);
+    allocator.free(ast.errors);
     ast.* = undefined;
 }
 

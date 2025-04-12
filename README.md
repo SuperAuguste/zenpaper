@@ -72,7 +72,7 @@ zenpaper play my_tune.xp
   - [ ] ADSR (envelope)
 - [ ] Ruler
 - [ ] Error reporting
-  - [ ] Parsing
+  - [x] Parsing
   - [ ] AST to spool
 - [ ] Editor support
   - [ ] Highlighting
@@ -88,8 +88,10 @@ zenpaper play my_tune.xp
 the docs saying otherwise, so this is not really a difference
 - Descending multi-ratios behave correctly (e.g. 3::1 and 3:2:1 are equivalent)
 - The last degree of a mode must complete the equave
+- My ADSR is really questionable and does not match xenpaper's - I'll have to look at 
+  tonejs' ADSR and replicate that
 
-You'll notice that the above differences are strict *additions*.
+You'll notice that the most of the above differences are strict *additions*.
  
 It may be wise to consider reworking the language grammar at a point in the future (potentially
 breaking backwards compatibility) for simplicity of implementation and usage. Here's an example 
