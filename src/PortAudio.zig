@@ -1,5 +1,5 @@
 const std = @import("std");
-const portaudio = @cImport({
+const c = @cImport({
     @cInclude("portaudio.h");
 });
 
@@ -22,28 +22,36 @@ const Options = struct {
 };
 
 pub fn init() !void {
-    if (portaudio.Pa_Initialize() != portaudio.paNoError) return error.InitFailed;
+    if (c.Pa_Initialize() != c.paNoError) return error.InitFailed;
 }
 
 pub fn deinit() void {
-    _ = portaudio.Pa_Terminate();
+    _ = c.Pa_Terminate();
 }
 
 pub const Stream = opaque {
     pub fn start(stream: *Stream) !void {
-        const err = portaudio.Pa_StartStream(@ptrCast(stream));
-        if (err != portaudio.paNoError) {
+        const err = c.Pa_StartStream(@ptrCast(stream));
+        if (err != c.paNoError) {
             return error.StartFailed;
         }
     }
 
     pub fn stop(stream: *Stream) !void {
-        const err = portaudio.Pa_StopStream(@ptrCast(stream));
-        if (err != portaudio.paNoError) {
+        const err = c.Pa_StopStream(@ptrCast(stream));
+        if (err != c.paNoError) {
             return error.StopFailed;
         }
     }
 };
+
+pub fn getDefaultOutputDeviceInfo() ?*const c.PaDeviceInfo {
+    const default_output_device = c.Pa_GetDefaultOutputDevice();
+    if (default_output_device == c.paNoDevice) {
+        return null;
+    }
+    return c.Pa_GetDeviceInfo(default_output_device);
+}
 
 pub fn openDefaultStream(
     comptime UserData: type,
@@ -58,21 +66,21 @@ pub fn openDefaultStream(
 ) !*Stream {
     const Sample = options.sample_format.Type();
 
-    var stream: ?*portaudio.PaStream = null;
-    const err = portaudio.Pa_OpenDefaultStream(
+    var stream: ?*c.PaStream = null;
+    const err = c.Pa_OpenDefaultStream(
         &stream,
         options.input_channels,
         options.output_channels,
-        portaudio.paFloat32 | portaudio.paNonInterleaved,
+        c.paFloat32 | c.paNonInterleaved,
         sample_rate,
-        portaudio.paFramesPerBufferUnspecified,
+        c.paFramesPerBufferUnspecified,
         struct {
             fn cb(
                 input_raw: ?*const anyopaque,
                 output_raw: ?*anyopaque,
                 frame_count: c_ulong,
-                time_info: [*c]const portaudio.PaStreamCallbackTimeInfo,
-                status_flags: portaudio.PaStreamCallbackFlags,
+                time_info: [*c]const c.PaStreamCallbackTimeInfo,
+                status_flags: c.PaStreamCallbackFlags,
                 user_data_raw: ?*anyopaque,
             ) callconv(.C) c_int {
                 _ = time_info;
@@ -112,8 +120,8 @@ pub fn openDefaultStream(
         user_data,
     );
 
-    if (err != portaudio.paNoError) {
-        std.debug.print("{s}", .{portaudio.Pa_GetErrorText(err)});
+    if (err != c.paNoError) {
+        std.debug.print("{s}", .{c.Pa_GetErrorText(err)});
         return error.OpenFailed;
     }
 
