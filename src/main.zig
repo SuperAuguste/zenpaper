@@ -79,7 +79,7 @@ fn play(allocator: std.mem.Allocator, args: *std.process.ArgIterator) !u8 {
     var ast = try Parser.parse(allocator, &tokens);
     defer ast.deinit(allocator);
 
-    ast.debugPrintNode(&tokens, .root, 0);
+    // ast.debugPrintNode(&tokens, .root, 0);
 
     if (ast.errors.len > 0) {
         for (ast.errors) |@"error"| {
@@ -96,32 +96,37 @@ fn play(allocator: std.mem.Allocator, args: *std.process.ArgIterator) !u8 {
         return 1;
     };
 
+    if (default_output_device_info.maxOutputChannels < 2) {
+        std.log.err("default output device does not support stereo", .{});
+        return 1;
+    }
+
     std.log.debug("using default output device '{s}' with sample rate {d}", .{
         default_output_device_info.name,
         default_output_device_info.defaultSampleRate,
     });
 
-    var note_spool = try AstToSpool.astToSpool(allocator, source, &tokens, &ast, 48_000);
+    var note_spool = try AstToSpool.astToSpool(allocator, source, &tokens, &ast, @floatCast(default_output_device_info.defaultSampleRate));
     defer note_spool.deinit(allocator);
 
-    note_spool.debugPrint();
+    // note_spool.debugPrint();
 
-    // const stream = try PortAudio.openDefaultStream(
-    //     NoteSpool,
-    //     .{
-    //         .input_channels = 0,
-    //         .output_channels = 2,
-    //         .sample_format = .f32,
-    //     },
-    //     realtime,
-    //     48_000,
-    //     &note_spool,
-    // );
-    // try stream.start();
+    const stream = try PortAudio.openDefaultStream(
+        NoteSpool,
+        .{
+            .input_channels = 0,
+            .output_channels = 2,
+            .sample_format = .f32,
+        },
+        realtime,
+        @floatCast(default_output_device_info.defaultSampleRate),
+        &note_spool,
+    );
+    try stream.start();
 
-    // while (!@atomicLoad(bool, &note_spool.done, .acquire)) {}
+    while (!@atomicLoad(bool, &note_spool.done, .acquire)) {}
 
-    // try stream.stop();
+    try stream.stop();
 
     return 0;
 }

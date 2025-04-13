@@ -23,21 +23,21 @@ No binaries yet, I need to set up CI for that - sorry!
 ```bash
 git clone https://github.com/SuperAuguste/zenpaper
 zig build
-./zig-out/bin/zenpaper play examples/hello.xp
+./zig-out/bin/zenpaper play examples/hello.zp
 ```
 
 Add zenpaper to your path for ease of invocation.
 
 If you're developing zenpaper and want to build *and* run, you can do the following:
 ```bash
-zig build run -- play examples/hello.xp
+zig build run -- play examples/hello.zp
 ```
 
 ## Usage
 
 ```bash
 # Plays your lil tune 
-zenpaper play my_tune.xp
+zenpaper play my_tune.zp
 ```
 
 ## Features
