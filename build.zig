@@ -1,6 +1,15 @@
 const std = @import("std");
+const portaudio = @import("portaudio");
 
-pub fn build(b: *std.Build) void {
+fn hostApisToStrings(arena: std.mem.Allocator, host_apis: []const portaudio.HostApi) ![]const []const u8 {
+    const strings = try arena.alloc([]const u8, host_apis.len);
+    for (host_apis, strings) |host_api, *string| {
+        string.* = @tagName(host_api);
+    }
+    return strings;
+}
+
+pub fn build(b: *std.Build) !void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
@@ -10,11 +19,22 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
+    const portaudio_host_apis = b.option([]const portaudio.HostApi, "portaudio-host-api", "Enable specific host audio APIs");
+
     // PortAudio
-    const portaudio = b.dependency("portaudio", .{});
-    const portaudio_lib = portaudio.artifact("portaudio");
+    const portaudio_dep = b.dependency("portaudio", .{
+        .target = target,
+        .optimize = optimize,
+        .@"host-api" = try hostApisToStrings(b.allocator, if (portaudio_host_apis) |opts| opts else switch (target.result.os.tag) {
+            .macos => portaudio.HostApi.defaults.macos,
+            .linux => portaudio.HostApi.defaults.linux,
+            .windows => portaudio.HostApi.defaults.windows,
+            else => std.debug.panic("unsupported os {s}", .{@tagName(target.result.os.tag)}),
+        }),
+    });
+    const portaudio_lib = portaudio_dep.artifact("portaudio");
     portaudio_lib.bundle_ubsan_rt = true;
-    exe_mod.addIncludePath(portaudio.path("include"));
+    exe_mod.addIncludePath(portaudio_dep.path("include"));
     exe_mod.linkLibrary(portaudio_lib);
 
     const exe = b.addExecutable(.{

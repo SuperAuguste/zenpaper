@@ -11,7 +11,7 @@ fn help() void {
         \\Usage: zenpaper [subcommand] [options]
         \\
         \\Subcommands:
-        \\  play             Play a xenpaper composition
+        \\  play             Play a zenpaper composition
         \\
     , .{});
 }
@@ -55,7 +55,7 @@ pub fn main() !u8 {
 
 fn play(allocator: std.mem.Allocator, args: *std.process.ArgIterator) !u8 {
     const path = args.next() orelse {
-        return helpAndError("expected path to xenpaper file", .{});
+        return helpAndError("expected path to zenpaper file", .{});
     };
 
     const source = std.fs.cwd().readFileAllocOptions(
@@ -67,7 +67,7 @@ fn play(allocator: std.mem.Allocator, args: *std.process.ArgIterator) !u8 {
         0,
     ) catch |err| switch (err) {
         error.FileNotFound, error.AccessDenied, error.BadPathName => |e| {
-            return helpAndError("failed to open xenpaper file '{s}': {s}", .{ path, @errorName(e) });
+            return helpAndError("failed to open zenpaper file '{s}': {s}", .{ path, @errorName(e) });
         },
         else => |e| return e,
     };
