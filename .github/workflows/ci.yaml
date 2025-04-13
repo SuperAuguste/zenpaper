@@ -17,6 +17,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Install pulseaudio on ubuntu
+        if: matrix.os == 'ubuntu-22.04'
+        run: sudo apt-get install pulseaudio libpulse-dev libasound-dev
+
       - uses: mlugg/setup-zig@v1
         with:
           version: 0.14.0
