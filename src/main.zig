@@ -4,8 +4,8 @@ const Tokenizer = @import("Tokenizer.zig");
 const Parser = @import("Parser.zig");
 const PortAudio = @import("PortAudio.zig");
 const NoteSpool = @import("NoteSpool.zig");
-// const AstToSpool = @import("AstToSpool.zig");
-const AstToFir = @import("AstToFir.zig");
+const AstToSpool = @import("AstToSpool.zig");
+// const AstToFir = @import("AstToFir.zig");
 
 fn help() void {
     std.log.info(
@@ -107,32 +107,32 @@ fn play(allocator: std.mem.Allocator, args: *std.process.ArgIterator) !u8 {
         default_output_device_info.defaultSampleRate,
     });
 
-    var fir = try AstToFir.astToFir(allocator, source, &tokens, &ast);
-    defer fir.deinit(allocator);
+    // var fir = try AstToFir.astToFir(allocator, source, &tokens, &ast);
+    // defer fir.deinit(allocator);
 
     // fir.debugPrintInstruction(&tokens, .root, 0);
 
-    // var note_spool = try AstToSpool.astToSpool(allocator, source, &tokens, &ast, @floatCast(default_output_device_info.defaultSampleRate));
-    // defer note_spool.deinit(allocator);
+    var note_spool = try AstToSpool.astToSpool(allocator, source, &tokens, &ast, @floatCast(default_output_device_info.defaultSampleRate));
+    defer note_spool.deinit(allocator);
 
-    // note_spool.debugPrint();
+    note_spool.debugPrint();
 
-    // const stream = try PortAudio.openDefaultStream(
-    //     NoteSpool,
-    //     .{
-    //         .input_channels = 0,
-    //         .output_channels = 2,
-    //         .sample_format = .f32,
-    //     },
-    //     realtime,
-    //     @floatCast(default_output_device_info.defaultSampleRate),
-    //     &note_spool,
-    // );
-    // try stream.start();
+    const stream = try PortAudio.openDefaultStream(
+        NoteSpool,
+        .{
+            .input_channels = 0,
+            .output_channels = 2,
+            .sample_format = .f32,
+        },
+        realtime,
+        @floatCast(default_output_device_info.defaultSampleRate),
+        &note_spool,
+    );
+    try stream.start();
 
-    // while (!@atomicLoad(bool, &note_spool.done, .acquire)) {}
+    while (!@atomicLoad(bool, &note_spool.done, .acquire)) {}
 
-    // try stream.stop();
+    try stream.stop();
 
     return 0;
 }
