@@ -15,12 +15,13 @@ pub fn write(
         const field_value = @field(value, field.name);
 
         switch (@typeInfo(field.type)) {
-            .int => try extra.append(allocator, @bitCast(field_value)),
-            .@"enum" => try extra.append(allocator, @intFromEnum(field_value)),
+            .int, .float => try extra.append(allocator, @bitCast(field_value)),
+            .@"enum" => try extra.append(allocator, @bitCast(@intFromEnum(field_value))),
             .pointer => {
                 try extra.append(allocator, @intCast(field_value.len));
                 try extra.appendSlice(allocator, @ptrCast(field_value));
             },
+            .@"struct" => _ = try write(allocator, extra, field_value),
             else => @compileError("TODO: " ++ @typeName(field.type)),
         }
     }
@@ -33,27 +34,36 @@ pub fn read(
     extra: []const u32,
     start: Index,
 ) T {
+    var index = @intFromEnum(start);
+    return readInternal(T, extra, &index);
+}
+
+fn readInternal(
+    comptime T: type,
+    extra: []const u32,
+    index: *u32,
+) T {
     var value: T = undefined;
 
-    var index = @intFromEnum(start);
     inline for (std.meta.fields(T)) |field| {
         const field_ptr = &@field(value, field.name);
 
         switch (@typeInfo(field.type)) {
-            .int => {
-                field_ptr.* = @bitCast(extra[index]);
-                index += 1;
+            .int, .float => {
+                field_ptr.* = @bitCast(extra[index.*]);
+                index.* += 1;
             },
-            .@"enum" => {
-                field_ptr.* = @enumFromInt(extra[index]);
-                index += 1;
+            .@"enum" => |info| {
+                field_ptr.* = @enumFromInt(@as(info.tag_type, @bitCast(extra[index.*])));
+                index.* += 1;
             },
             .pointer => {
-                const len = extra[index];
-                index += 1;
-                @field(value, field.name) = @ptrCast(extra[index..][0..len]);
-                index += len;
+                const len = extra[index.*];
+                index.* += 1;
+                @field(value, field.name) = @ptrCast(extra[index.*..][0..len]);
+                index.* += len;
             },
+            .@"struct" => field_ptr.* = readInternal(field.type, extra, index),
             else => @compileError("TODO: " ++ @typeName(field.type)),
         }
     }
