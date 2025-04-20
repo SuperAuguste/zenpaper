@@ -13,8 +13,27 @@ pub const Fraction = struct {
 
 pub const Tone = struct {
     pub const Index = enum(u32) { _ };
+    pub const OptionalIndex = enum(u32) {
+        none = std.math.maxInt(u32),
+        _,
 
-    // TODO: Equave exponent should also be an instruction
+        pub fn wrap(maybe_index: ?Index) OptionalIndex {
+            if (maybe_index) |index| {
+                const optional: OptionalIndex = @enumFromInt(@intFromEnum(index));
+                std.debug.assert(optional != .none);
+                return optional;
+            } else {
+                return .none;
+            }
+        }
+
+        pub fn unwrap(optional: OptionalIndex) ?Index {
+            return switch (optional) {
+                .none => null,
+                _ => |value| @enumFromInt(@intFromEnum(value)),
+            };
+        }
+    };
 
     pub const Tag = std.meta.Tag(Data);
     pub const Data = union(enum(u8)) {
@@ -50,7 +69,6 @@ pub const Tone = struct {
         },
         hz: struct {
             equave_exponent: EquaveExponent,
-            // TODO: Technically this field is redundant but it makes AstToFir simpler.
             frequency: f32,
         },
 
@@ -69,12 +87,15 @@ pub const Tone = struct {
     value: f32,
 };
 
+// TODO: This struct's equave_exponent has a chicken and egg issue during emission.
+// Can be solved by emitting instructions first, then emitting their constituent tones.
 pub const Instruction = struct {
     pub const Index = enum(u32) { _ };
 
     pub const Tag = std.meta.Tag(Data);
     pub const Data = union(enum(u8)) {
         root_frequency: struct {
+            equave_exponent: EquaveExponent,
             tone: Tone.Index,
         },
         note: struct {
@@ -91,6 +112,7 @@ pub const Instruction = struct {
             equave_exponent: EquaveExponent,
             tones_start: Tone.Index,
             tones_end: Tone.Index,
+            equave: Tone.OptionalIndex,
         },
 
         pub const Untagged = Extra.Untagged(Data);
@@ -99,7 +121,8 @@ pub const Instruction = struct {
     tag: Tag,
     src_node: Ast.Node.OptionalIndex,
     untagged_data: Data.Untagged,
-    equave: Fraction,
+
+    equave: Tone.Index,
 };
 
 instructions: std.MultiArrayList(Instruction).Slice,
@@ -129,36 +152,74 @@ pub fn toneDataFromUntagged(
     return untagged.toTagged(fir.extra, tag);
 }
 
-pub fn debugPrint(fir: *const Fir) void {
-    const tone_tags = fir.tones.items(.tag);
-    const tone_untagged_datas = fir.tones.items(.untagged_data);
+fn debugPrintTone(fir: *const Fir, tone: Tone.Index) void {
+    const tag = fir.tones.items(.tag)[@intFromEnum(tone)];
+    const untagged_data = fir.tones.items(.untagged_data)[@intFromEnum(tone)];
+    const value = fir.tones.items(.value)[@intFromEnum(tone)];
+    const src_node = fir.tones.items(.src_node)[@intFromEnum(tone)];
+    const data = fir.toneDataFromUntagged(tag, untagged_data);
 
+    std.debug.print("tone {d}: {s} - value {d} - ", .{ @intFromEnum(tone), @tagName(data), value });
+
+    switch (data) {
+        .degree => |info| {
+            std.debug.print("{d}", .{info.degree});
+        },
+        .ratio => |info| {
+            std.debug.print("{d}/{d}", .{ info.numerator, info.denominator });
+        },
+        .edostep => |info| {
+            std.debug.print("{d}\\{d}", .{ info.edostep, info.divisions });
+        },
+        .hz => |info| {
+            std.debug.print("{d}hz", .{info.frequency});
+        },
+        else => @panic("TODO"),
+    }
+
+    if (src_node.unwrap() == null) {
+        std.debug.print(" (implicit)", .{});
+    }
+}
+
+pub fn debugPrint(fir: *const Fir) void {
     for (
         0..,
         fir.instructions.items(.tag),
+        fir.instructions.items(.src_node),
         fir.instructions.items(.untagged_data),
     ) |
         index,
         tag,
+        src_node,
         untagged_data,
     | {
         const data = fir.instructionDataFromUntagged(tag, untagged_data);
-        std.debug.print("instruction {d}: ", .{index});
+
+        std.debug.print("instruction {d}: {s}", .{ index, @tagName(data) });
+        if (src_node.unwrap() == null) {
+            std.debug.print(" (implicit)", .{});
+        }
+        std.debug.print("\n", .{});
 
         switch (data) {
-            .root_frequency => {
-                std.debug.print("root frequency\n", .{});
+            .root_frequency => |info| {
+                std.debug.print("  equave exponent {d}\n  ", .{@intFromEnum(info.equave_exponent)});
+                fir.debugPrintTone(info.tone);
+                std.debug.print("\n", .{});
             },
             .scale => |info| {
-                std.debug.print("scale\n", .{});
-
-                for (
-                    @intFromEnum(info.tones_start)..@intFromEnum(info.tones_end),
-                    tone_tags[@intFromEnum(info.tones_start)..@intFromEnum(info.tones_end)],
-                    tone_untagged_datas[@intFromEnum(info.tones_start)..@intFromEnum(info.tones_end)],
-                ) |tone_index, tone_tag, tone_untagged_data| {
-                    const tone_data = fir.toneDataFromUntagged(tone_tag, tone_untagged_data);
-                    std.debug.print("  tone {d}: {any}\n", .{ tone_index, tone_data });
+                std.debug.print("  equave exponent {d}\n", .{@intFromEnum(info.equave_exponent)});
+                std.debug.print("  children:\n", .{});
+                for (@intFromEnum(info.tones_start)..@intFromEnum(info.tones_end)) |tone_index| {
+                    std.debug.print("    ", .{});
+                    fir.debugPrintTone(@enumFromInt(tone_index));
+                    std.debug.print("\n", .{});
+                }
+                if (info.equave.unwrap()) |equave| {
+                    std.debug.print("  equave:\n    ", .{});
+                    fir.debugPrintTone(equave);
+                    std.debug.print("\n", .{});
                 }
             },
             else => @panic("TODO"),

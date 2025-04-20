@@ -20,8 +20,8 @@ instructions: std.MultiArrayList(Instruction),
 tones: std.MultiArrayList(Tone),
 extra: std.ArrayListUnmanaged(u32),
 
-current_equave: Fir.Fraction,
-current_scale: Instruction.Index,
+equave: Tone.Index,
+scale: Instruction.Index,
 
 pub fn astToFir(
     allocator: std.mem.Allocator,
@@ -41,12 +41,13 @@ pub fn astToFir(
         .tones = .empty,
         .extra = .empty,
 
-        .current_equave = .{ .numerator = 2, .denominator = 1 },
-        .current_scale = undefined,
+        .equave = @enumFromInt(1 + 12),
+        .scale = @enumFromInt(1),
     };
 
     const root_frequency = try ast_to_fir.appendInstruction(.{
         .root_frequency = .{
+            .equave_exponent = @enumFromInt(0),
             .tone = try ast_to_fir.appendTone(.{
                 .hz = .{
                     .equave_exponent = @enumFromInt(0),
@@ -67,15 +68,25 @@ pub fn astToFir(
         }, null);
     }
 
-    ast_to_fir.current_scale = try ast_to_fir.appendInstruction(.{
+    const equave = try ast_to_fir.appendTone(.{
+        .ratio = .{
+            .equave_exponent = @enumFromInt(0),
+            .root_frequency = root_frequency,
+            .numerator = 2,
+            .denominator = 1,
+        },
+    }, null);
+    assert(equave == ast_to_fir.equave);
+
+    const scale = try ast_to_fir.appendInstruction(.{
         .scale = .{
             .equave_exponent = @enumFromInt(0),
             .tones_start = @enumFromInt(1 + 0),
             .tones_end = @enumFromInt(1 + 12),
+            .equave = .wrap(equave),
         },
     }, null);
-
-    // try ast_to_fir.astToFirInternal();
+    assert(scale == ast_to_fir.scale);
 
     return .{
         .instructions = ast_to_fir.instructions.toOwnedSlice(),
@@ -93,7 +104,7 @@ fn appendInstruction(
         .tag = data,
         .src_node = .wrap(src_node),
         .untagged_data = try .fromTagged(ast_to_fir.allocator, &ast_to_fir.extra, data),
-        .equave = ast_to_fir.current_equave,
+        .equave = ast_to_fir.equave,
     });
     return @enumFromInt(ast_to_fir.instructions.len - 1);
 }
