@@ -9,6 +9,11 @@ pub const LengthModifier = enum(u32) { _ };
 pub const Fraction = struct {
     numerator: u32,
     denominator: u32,
+
+    pub fn float(fraction: Fraction) f32 {
+        return @as(f32, @floatFromInt(fraction.numerator)) /
+            @as(f32, @floatFromInt(fraction.denominator));
+    }
 };
 
 pub const Tone = struct {
@@ -34,35 +39,30 @@ pub const Tone = struct {
             };
         }
     };
+    pub const Range = struct { start: Tone.Index, end: Tone.Index };
 
     pub const Tag = std.meta.Tag(Data);
     pub const Data = union(enum(u8)) {
         degree: struct {
             equave_exponent: EquaveExponent,
-            root_frequency: Instruction.Index,
             scale: Instruction.Index,
             degree: u32,
         },
         ratio: struct {
             equave_exponent: EquaveExponent,
-            root_frequency: Instruction.Index,
-            numerator: u32,
-            denominator: u32,
+            ratio: Fraction,
         },
         cents: struct {
             equave_exponent: EquaveExponent,
-            root_frequency: Instruction.Index,
             cents: f32,
         },
         edostep: struct {
             equave_exponent: EquaveExponent,
-            root_frequency: Instruction.Index,
             edostep: u32,
             divisions: u32,
         },
         edxstep: struct {
             equave_exponent: EquaveExponent,
-            root_frequency: Instruction.Index,
             edostep: u32,
             divisions: u32,
             equave: Fraction,
@@ -87,8 +87,6 @@ pub const Tone = struct {
     value: f32,
 };
 
-// TODO: This struct's equave_exponent has a chicken and egg issue during emission.
-// Can be solved by emitting instructions first, then emitting their constituent tones.
 pub const Instruction = struct {
     pub const Index = enum(u32) { _ };
 
@@ -96,22 +94,23 @@ pub const Instruction = struct {
     pub const Data = union(enum(u8)) {
         root_frequency: struct {
             equave_exponent: EquaveExponent,
+            root_frequency: Tone.Index,
             tone: Tone.Index,
         },
         note: struct {
+            root_frequency: Tone.Index,
             tone: Tone.Index,
             held: u32,
         },
         chord: struct {
             equave_exponent: EquaveExponent,
-            tones_start: Tone.Index,
-            tones_end: Tone.Index,
+            root_frequency: Tone.Index,
+            tones: Tone.Range,
             held: u32,
         },
         scale: struct {
             equave_exponent: EquaveExponent,
-            tones_start: Tone.Index,
-            tones_end: Tone.Index,
+            tones: Tone.Range,
             equave: Tone.OptionalIndex,
         },
 
@@ -166,7 +165,7 @@ fn debugPrintTone(fir: *const Fir, tone: Tone.Index) void {
             std.debug.print("{d}", .{info.degree});
         },
         .ratio => |info| {
-            std.debug.print("{d}/{d}", .{ info.numerator, info.denominator });
+            std.debug.print("{d}/{d}", .{ info.ratio.numerator, info.ratio.denominator });
         },
         .edostep => |info| {
             std.debug.print("{d}\\{d}", .{ info.edostep, info.divisions });
@@ -204,14 +203,14 @@ pub fn debugPrint(fir: *const Fir) void {
 
         switch (data) {
             .root_frequency => |info| {
-                std.debug.print("  equave exponent {d}\n  ", .{@intFromEnum(info.equave_exponent)});
+                std.debug.print("  equave exponent {d}\n", .{@intFromEnum(info.equave_exponent)});
                 fir.debugPrintTone(info.tone);
                 std.debug.print("\n", .{});
             },
             .scale => |info| {
                 std.debug.print("  equave exponent {d}\n", .{@intFromEnum(info.equave_exponent)});
                 std.debug.print("  children:\n", .{});
-                for (@intFromEnum(info.tones_start)..@intFromEnum(info.tones_end)) |tone_index| {
+                for (@intFromEnum(info.tones.start)..@intFromEnum(info.tones.end)) |tone_index| {
                     std.debug.print("    ", .{});
                     fir.debugPrintTone(@enumFromInt(tone_index));
                     std.debug.print("\n", .{});
