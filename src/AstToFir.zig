@@ -9,6 +9,7 @@ const assert = std.debug.assert;
 const Instruction = Fir.Instruction;
 const Tone = Fir.Tone;
 const EquaveExponent = Fir.EquaveExponent;
+const LengthModifier = Fir.LengthModifier;
 
 const AstToFir = @This();
 
@@ -125,10 +126,180 @@ pub fn astToFir(
         },
     }, null);
 
+    try ast_to_fir.astToFirInternal();
+
     return .{
         .instructions = ast_to_fir.instructions.toOwnedSlice(),
         .tones = ast_to_fir.tones.toOwnedSlice(),
         .extra = try ast_to_fir.extra.toOwnedSlice(allocator),
+    };
+}
+
+fn astToFirInternal(ast_to_fir: *AstToFir) !void {
+    for (ast_to_fir.ast.nodeData(.root).root.children) |root_child_held| {
+        const root_child_equave_shifted, const root_child_length_modifier = ast_to_fir.extractHeld(root_child_held);
+        const root_child, const root_child_equave_exponent = ast_to_fir.extractEquaveShifted(root_child_equave_shifted);
+        const root_child_main_token = ast_to_fir.ast.nodeMainToken(root_child);
+        const root_child_data = ast_to_fir.ast.nodeData(root_child);
+
+        switch (root_child_data) {
+            .degree, .ratio, .cents, .edostep, .edxstep, .hz => {
+                _ = try ast_to_fir.appendInstruction(.{
+                    .note = .{
+                        .root_frequency = ast_to_fir.root_frequency,
+                        .tone = try ast_to_fir.nodeToTone(
+                            root_child_main_token,
+                            root_child_data,
+                            root_child_equave_exponent,
+                            .{
+                                .value_kind = .frequency,
+                                .instruction_equave_exponent = @enumFromInt(0),
+                                .src_node = root_child,
+                            },
+                        ),
+                        .length_modifier = root_child_length_modifier,
+                    },
+                }, root_child);
+            },
+            else => @panic("TODO"),
+        }
+    }
+}
+
+fn extractHeld(
+    ast_to_fir: *AstToFir,
+    node: Node.Index,
+) struct { Ast.Node.Index, LengthModifier } {
+    return switch (ast_to_fir.ast.nodeData(node)) {
+        .held => |held_info| .{
+            held_info.child,
+            @enumFromInt(held_info.holds),
+        },
+        else => .{ node, @enumFromInt(0) },
+    };
+}
+
+fn extractEquaveShifted(
+    ast_to_fir: *AstToFir,
+    node: Node.Index,
+) struct { Ast.Node.Index, EquaveExponent } {
+    return switch (ast_to_fir.ast.nodeData(node)) {
+        .equave_shifted => |equave_shifted_info| .{
+            equave_shifted_info.child,
+            @enumFromInt(equave_shifted_info.equave_shift),
+        },
+        else => .{ node, @enumFromInt(0) },
+    };
+}
+
+fn nodeToTone(
+    ast_to_fir: *AstToFir,
+    main_token: ?Token.Index,
+    data: Node.Data,
+    equave_exponent: EquaveExponent,
+    tone_additional_info: ToneAdditionalInfo,
+) !Tone.Index {
+    return try ast_to_fir.appendTone(switch (data) {
+        .degree => .{
+            .degree = .{
+                .equave_exponent = equave_exponent,
+                .scale = ast_to_fir.scale,
+                .degree = try ast_to_fir.parseIntFromToken(main_token.?),
+            },
+        },
+        .ratio => |info| .{
+            .ratio = .{
+                .equave_exponent = equave_exponent,
+                .ratio = .{
+                    .numerator = try ast_to_fir.parseIntFromToken(main_token.?),
+                    .denominator = try ast_to_fir.parseIntFromToken(info.denominator),
+                },
+            },
+        },
+        .cents => |info| .{
+            .cents = .{
+                .equave_exponent = equave_exponent,
+                .cents = try ast_to_fir.parseFloatFromTokens(main_token.?, info.fractional_part.unwrap()),
+            },
+        },
+        .edostep => |info| blk: {
+            const edostep = try ast_to_fir.parseIntFromToken(main_token.?);
+            const divisions = try ast_to_fir.parseIntFromToken(info.divisions);
+            if (divisions == 0) {
+                return error.SpoolError;
+            }
+
+            break :blk .{
+                .edostep = .{
+                    .equave_exponent = equave_exponent,
+                    .edostep = edostep,
+                    .divisions = divisions,
+                },
+            };
+        },
+        .edxstep => |info| blk: {
+            const edostep = try ast_to_fir.parseIntFromToken(main_token.?);
+            const divisions = try ast_to_fir.parseIntFromToken(info.divisions);
+            if (divisions == 0) {
+                return error.AstToFirError;
+            }
+            const equave = try ast_to_fir.parseFractionFromNode(info.equave);
+
+            break :blk .{
+                .edxstep = .{
+                    .equave_exponent = equave_exponent,
+                    .edostep = edostep,
+                    .divisions = divisions,
+                    .equave = equave,
+                },
+            };
+        },
+        .hz => |info| .{
+            .hz = .{
+                .equave_exponent = equave_exponent,
+                .frequency = try ast_to_fir.parseFloatFromTokens(main_token.?, info.fractional_part.unwrap()),
+            },
+        },
+        else => unreachable,
+    }, tone_additional_info);
+}
+
+fn parseIntFromToken(ast_to_fir: *const AstToFir, token: Token.Index) !u32 {
+    return std.fmt.parseInt(
+        u32,
+        ast_to_fir.tokens.sliceSource(ast_to_fir.source, token),
+        10,
+    );
+}
+
+fn parseFloatFromTokens(
+    ast_to_fir: *const AstToFir,
+    whole_part: Token.Index,
+    fractional_part: ?Token.Index,
+) !f32 {
+    const start = ast_to_fir.tokens.range(whole_part).start;
+    const end = ast_to_fir.tokens.range(fractional_part orelse whole_part).end;
+    return std.fmt.parseFloat(f32, ast_to_fir.source[start..end]);
+}
+
+fn parseFractionFromNode(ast_to_fir: *AstToFir, node: Node.Index) !Fir.Fraction {
+    return switch (ast_to_fir.ast.nodeData(node)) {
+        .integer => .{
+            .numerator = try ast_to_fir.parseIntFromToken(ast_to_fir.ast.nodeMainToken(node).?),
+            .denominator = 1,
+        },
+        .fraction => |info| blk: {
+            const numerator = try ast_to_fir.parseIntFromToken(ast_to_fir.ast.nodeMainToken(node).?);
+            const denominator = try ast_to_fir.parseIntFromToken(info.denominator);
+            if (denominator == 0) {
+                return error.AstToFirError;
+            }
+            break :blk .{
+                .numerator = numerator,
+                .denominator = denominator,
+            };
+        },
+        else => unreachable,
     };
 }
 
@@ -175,8 +346,8 @@ fn appendTone(
         .src_node = .wrap(tone_additional_info.src_node),
         .instruction = @enumFromInt(ast_to_fir.instructions.len),
         .value = switch (tone_additional_info.value_kind) {
-            .ratio => ast_to_fir.toneRatio(data, tone_additional_info.instruction_equave_exponent),
             .frequency => ast_to_fir.toneFrequency(data, tone_additional_info.instruction_equave_exponent),
+            .ratio => ast_to_fir.toneRatio(data, tone_additional_info.instruction_equave_exponent),
         },
     });
     return @enumFromInt(ast_to_fir.tones.len - 1);
@@ -190,28 +361,25 @@ fn toneRatio(
     const equave = ast_to_fir.tones.items(.value)[@intFromEnum(ast_to_fir.equave)];
 
     return sw: switch (data) {
-        // .degree => blk: {
-        //     assert(ast_to_fir.scale_ratios.items.len != 0);
-        //     const degree = try ast_to_spool.parseIntFromToken(main_token.?);
-        //     break :blk ast_to_spool.scale_ratios.items[degree % ast_to_spool.scale_ratios.items.len] *
-        //         std.math.pow(
-        //             f32,
-        //             ast_to_spool.equave,
-        //             @as(f32, @floatFromInt(degree / ast_to_spool.scale_ratios.items.len)),
-        //         );
-        // },
-        // .ratio => |info| blk: {
-        //     const numerator: f32 = @floatFromInt(try ast_to_spool.parseIntFromToken(main_token.?));
-        //     const denominator: f32 = @floatFromInt(try ast_to_spool.parseIntFromToken(info.denominator));
-        //     if (denominator == 0) {
-        //         return error.SpoolError;
-        //     }
-        //     break :blk numerator / denominator;
-        // },
-        // .cents => |info| blk: {
-        //     const cents = try ast_to_spool.parseFloatFromTokens(main_token.?, info.fractional_part.unwrap());
-        //     break :blk @exp2(cents / 1200);
-        // },
+        .degree => |info| {
+            const scale_info =
+                ast_to_fir.instructions.items(.untagged_data)[@intFromEnum(ast_to_fir.scale)].toTagged(
+                    ast_to_fir.extra.items,
+                    .scale,
+                ).scale;
+            const scale_len = @intFromEnum(scale_info.tones.end) - @intFromEnum(scale_info.tones.start);
+            break :sw ast_to_fir.tones.items(.value)[@intFromEnum(scale_info.tones.start) + info.degree % scale_len] *
+                std.math.pow(
+                    f32,
+                    equave,
+                    @as(f32, @floatFromInt(info.degree / scale_len)),
+                ) *
+                std.math.pow(f32, equave, @floatFromInt(@intFromEnum(info.equave_exponent)));
+        },
+        .ratio => |info| info.ratio.float() *
+            std.math.pow(f32, equave, @floatFromInt(@intFromEnum(info.equave_exponent))),
+        .cents => |info| @exp2(info.cents / 1200) *
+            std.math.pow(f32, equave, @floatFromInt(@intFromEnum(info.equave_exponent))),
         .edostep => |info| {
             const edostep: f32 = @floatFromInt(info.edostep);
             const divisions: f32 = @floatFromInt(info.divisions);
@@ -220,16 +388,15 @@ fn toneRatio(
             break :sw std.math.pow(f32, 2, edostep / divisions) *
                 std.math.pow(f32, equave, @floatFromInt(@intFromEnum(info.equave_exponent)));
         },
-        // .edxstep => |info| blk: {
-        //     const edostep: f32 = @floatFromInt(try ast_to_spool.parseIntFromToken(main_token.?));
-        //     const divisions: f32 = @floatFromInt(try ast_to_spool.parseIntFromToken(info.divisions));
-        //     if (divisions == 0) {
-        //         return error.SpoolError;
-        //     }
-        //     const equave: f32 = try ast_to_spool.fractionOrIntegerToFloat(info.equave);
-        //     break :blk std.math.pow(f32, equave, edostep / divisions);
-        // },
-        else => 0,
+        .edxstep => |info| {
+            const edostep: f32 = @floatFromInt(info.edostep);
+            const divisions: f32 = @floatFromInt(info.divisions);
+            assert(divisions != 0);
+            const edx_equave = info.equave.float();
+
+            break :sw std.math.pow(f32, edx_equave, edostep / divisions) *
+                std.math.pow(f32, equave, @floatFromInt(@intFromEnum(info.equave_exponent)));
+        },
         .hz => unreachable,
     } *
         std.math.pow(f32, equave, @floatFromInt(@intFromEnum(instruction_equave_exponent)));
@@ -240,21 +407,19 @@ fn toneFrequency(
     data: Tone.Data,
     instruction_equave_exponent: EquaveExponent,
 ) f32 {
-    const root_frequency = ast_to_fir.tones.items(.value)[@intFromEnum(ast_to_fir.equave)];
-
     return switch (data) {
         .degree,
         .ratio,
         .cents,
         .edostep,
         .edxstep,
-        => root_frequency *
+        => ast_to_fir.tones.items(.value)[@intFromEnum(ast_to_fir.root_frequency)] *
             ast_to_fir.toneRatio(data, instruction_equave_exponent),
         .hz => |info| info.frequency *
             std.math.pow(
                 f32,
                 ast_to_fir.tones.items(.value)[@intFromEnum(ast_to_fir.equave)],
-                @floatFromInt(@intFromEnum(instruction_equave_exponent)),
+                @floatFromInt(@intFromEnum(info.equave_exponent) + @intFromEnum(instruction_equave_exponent)),
             ),
     };
 }

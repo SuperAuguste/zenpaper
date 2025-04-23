@@ -11,6 +11,7 @@ pub const Fraction = struct {
     denominator: u32,
 
     pub fn float(fraction: Fraction) f32 {
+        std.debug.assert(fraction.denominator != 0);
         return @as(f32, @floatFromInt(fraction.numerator)) /
             @as(f32, @floatFromInt(fraction.denominator));
     }
@@ -100,13 +101,13 @@ pub const Instruction = struct {
         note: struct {
             root_frequency: Tone.Index,
             tone: Tone.Index,
-            held: u32,
+            length_modifier: LengthModifier,
         },
         chord: struct {
             equave_exponent: EquaveExponent,
             root_frequency: Tone.Index,
             tones: Tone.Range,
-            held: u32,
+            length_modifier: LengthModifier,
         },
         scale: struct {
             equave_exponent: EquaveExponent,
@@ -167,13 +168,18 @@ fn debugPrintTone(fir: *const Fir, tone: Tone.Index) void {
         .ratio => |info| {
             std.debug.print("{d}/{d}", .{ info.ratio.numerator, info.ratio.denominator });
         },
+        .cents => |info| {
+            std.debug.print("{d}c", .{info.cents});
+        },
         .edostep => |info| {
             std.debug.print("{d}\\{d}", .{ info.edostep, info.divisions });
+        },
+        .edxstep => |info| {
+            std.debug.print("{d}\\{d}o{d}/{d}", .{ info.edostep, info.divisions, info.equave.numerator, info.equave.denominator });
         },
         .hz => |info| {
             std.debug.print("{d}hz", .{info.frequency});
         },
-        else => @panic("TODO"),
     }
 
     if (src_node.unwrap() == null) {
@@ -203,7 +209,12 @@ pub fn debugPrint(fir: *const Fir) void {
 
         switch (data) {
             .root_frequency => |info| {
-                std.debug.print("  equave exponent {d}\n", .{@intFromEnum(info.equave_exponent)});
+                std.debug.print("  equave exponent {d}\n  ", .{@intFromEnum(info.equave_exponent)});
+                fir.debugPrintTone(info.tone);
+                std.debug.print("\n", .{});
+            },
+            .note => |info| {
+                std.debug.print("  ", .{});
                 fir.debugPrintTone(info.tone);
                 std.debug.print("\n", .{});
             },

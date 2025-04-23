@@ -89,28 +89,28 @@ fn play(allocator: std.mem.Allocator, args: *std.process.ArgIterator) !u8 {
         return 1;
     }
 
-    try PortAudio.init();
-    defer PortAudio.deinit();
-
-    const default_output_device_info = PortAudio.getDefaultOutputDeviceInfo() orelse {
-        std.log.err("could not obtain default output device", .{});
-        return 1;
-    };
-
-    if (default_output_device_info.maxOutputChannels < 2) {
-        std.log.err("default output device does not support stereo", .{});
-        return 1;
-    }
-
-    std.log.debug("using default output device '{s}' with sample rate {d}", .{
-        default_output_device_info.name,
-        default_output_device_info.defaultSampleRate,
-    });
-
     var fir = try AstToFir.astToFir(allocator, source, &tokens, &ast);
     defer fir.deinit(allocator);
 
     fir.debugPrint();
+
+    // try PortAudio.init();
+    // defer PortAudio.deinit();
+
+    // const default_output_device_info = PortAudio.getDefaultOutputDeviceInfo() orelse {
+    //     std.log.err("could not obtain default output device", .{});
+    //     return 1;
+    // };
+
+    // if (default_output_device_info.maxOutputChannels < 2) {
+    //     std.log.err("default output device does not support stereo", .{});
+    //     return 1;
+    // }
+
+    // std.log.debug("using default output device '{s}' with sample rate {d}", .{
+    //     default_output_device_info.name,
+    //     default_output_device_info.defaultSampleRate,
+    // });
 
     // var note_spool = try AstToSpool.astToSpool(allocator, source, &tokens, &ast, @floatCast(default_output_device_info.defaultSampleRate));
     // defer note_spool.deinit(allocator);
