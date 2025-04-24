@@ -40,7 +40,14 @@ pub const Tone = struct {
             };
         }
     };
-    pub const Range = struct { start: Tone.Index, end: Tone.Index };
+    pub const Range = struct {
+        start: Tone.Index,
+        end: Tone.Index,
+
+        pub fn len(range: Range) u32 {
+            return @intFromEnum(range.end) - @intFromEnum(range.start);
+        }
+    };
 
     pub const Tag = std.meta.Tag(Data);
     pub const Data = union(enum(u8)) {
@@ -218,6 +225,14 @@ pub fn debugPrint(fir: *const Fir) void {
                 fir.debugPrintTone(info.tone);
                 std.debug.print("\n", .{});
             },
+            .chord => |info| {
+                std.debug.print("  children:\n", .{});
+                for (@intFromEnum(info.tones.start)..@intFromEnum(info.tones.end)) |tone_index| {
+                    std.debug.print("    ", .{});
+                    fir.debugPrintTone(@enumFromInt(tone_index));
+                    std.debug.print("\n", .{});
+                }
+            },
             .scale => |info| {
                 std.debug.print("  equave exponent {d}\n", .{@intFromEnum(info.equave_exponent)});
                 std.debug.print("  children:\n", .{});
@@ -232,7 +247,6 @@ pub fn debugPrint(fir: *const Fir) void {
                     std.debug.print("\n", .{});
                 }
             },
-            else => @panic("TODO"),
         }
     }
 }

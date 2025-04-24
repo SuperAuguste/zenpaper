@@ -154,10 +154,96 @@ fn astToFirInternal(ast_to_fir: *AstToFir) !void {
                             .{
                                 .value_kind = .frequency,
                                 .instruction_equave_exponent = @enumFromInt(0),
-                                .src_node = root_child,
+                                .src_node = root_child_held,
                             },
                         ),
                         .length_modifier = root_child_length_modifier,
+                    },
+                }, root_child);
+            },
+            .chord => |info| {
+                const chord_tones_start = ast_to_fir.startTones();
+
+                for (info.children) |chord_child_equave_shifted| {
+                    const chord_child, const chord_child_equave_shift = ast_to_fir.extractEquaveShifted(chord_child_equave_shifted);
+                    const chord_child_main_token = ast_to_fir.ast.nodeMainToken(chord_child);
+                    const chord_child_data = ast_to_fir.ast.nodeData(chord_child);
+
+                    _ = try ast_to_fir.nodeToTone(
+                        chord_child_main_token,
+                        chord_child_data,
+                        chord_child_equave_shift,
+                        .{
+                            .value_kind = .frequency,
+                            .instruction_equave_exponent = root_child_equave_exponent,
+                            .src_node = chord_child_equave_shifted,
+                        },
+                    );
+                }
+
+                const tones = ast_to_fir.endTones(chord_tones_start);
+
+                assert(tones.len() > 0);
+
+                ast_to_fir.scale = try ast_to_fir.appendInstruction(.{
+                    .chord = .{
+                        .equave_exponent = root_child_equave_exponent,
+                        .root_frequency = ast_to_fir.root_frequency,
+                        .tones = tones,
+                        .length_modifier = root_child_length_modifier,
+                    },
+                }, root_child);
+            },
+            .scale => |info| {
+                assert(@intFromEnum(root_child_length_modifier) == 0);
+
+                const scale_tones_start = ast_to_fir.startTones();
+
+                for (info.children) |scale_child_equave_shifted| {
+                    const scale_child, const scale_child_equave_shift = ast_to_fir.extractEquaveShifted(scale_child_equave_shifted);
+                    const scale_child_main_token = ast_to_fir.ast.nodeMainToken(scale_child);
+                    const scale_child_data = ast_to_fir.ast.nodeData(scale_child);
+
+                    _ = try ast_to_fir.nodeToTone(
+                        scale_child_main_token,
+                        scale_child_data,
+                        scale_child_equave_shift,
+                        .{
+                            .value_kind = .ratio,
+                            .instruction_equave_exponent = root_child_equave_exponent,
+                            .src_node = scale_child_equave_shifted,
+                        },
+                    );
+                }
+
+                const tones = ast_to_fir.endTones(scale_tones_start);
+
+                assert(tones.len() > 0);
+
+                const equave: ?Fir.Tone.Index = if (info.equave.unwrap()) |equave_equave_shifted| blk: {
+                    const equave, const equave_equave_shift = ast_to_fir.extractEquaveShifted(equave_equave_shifted);
+                    const equave_main_token = ast_to_fir.ast.nodeMainToken(equave);
+                    const equave_data = ast_to_fir.ast.nodeData(equave);
+
+                    const equave_tone = try ast_to_fir.nodeToTone(
+                        equave_main_token,
+                        equave_data,
+                        equave_equave_shift,
+                        .{
+                            .value_kind = .ratio,
+                            .instruction_equave_exponent = root_child_equave_exponent,
+                            .src_node = equave_equave_shifted,
+                        },
+                    );
+                    ast_to_fir.equave = equave_tone;
+                    break :blk equave_tone;
+                } else null;
+
+                ast_to_fir.scale = try ast_to_fir.appendInstruction(.{
+                    .scale = .{
+                        .equave_exponent = root_child_equave_exponent,
+                        .tones = tones,
+                        .equave = .wrap(equave),
                     },
                 }, root_child);
             },
