@@ -83,7 +83,8 @@ fn parseInternal(parser: *Parser) !void {
     };
 }
 
-// TODO: Refactor to make '{12edo} and similar illegal
+// TODO: Refactor to keep '{12edo}/'{12ed2} legal, make '{r440hz} illegal;
+// TODO: split out the code from parseScale to achieve aforementioned
 fn parseRootChild(parser: *Parser) !Node.Index {
     const start_equave_shifted_optional = try parser.startEquaveShifted();
 

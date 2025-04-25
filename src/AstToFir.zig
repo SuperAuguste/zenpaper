@@ -180,6 +180,25 @@ fn astToFirInternal(ast_to_fir: *AstToFir) !void {
                     },
                 }, root_child_held);
             },
+            .chord_multi_ratio => |info| {
+                ast_to_fir.startInstruction(.{
+                    .chord = .{
+                        .equave_exponent = root_child_equave_exponent,
+                        .length_modifier = root_child_length_modifier,
+                    },
+                });
+
+                const chord_tones_start = ast_to_fir.startTones();
+                try ast_to_fir.parseMultiRatio(root_child_main_token.?, info.children);
+                const tones = ast_to_fir.endTones(chord_tones_start);
+                assert(tones.len() > 0);
+
+                _ = try ast_to_fir.endInstruction(.{
+                    .chord = .{
+                        .tones = tones,
+                    },
+                }, root_child_equave_shifted);
+            },
             .scale => |info| {
                 assert(@intFromEnum(root_child_length_modifier) == 0);
 
@@ -211,13 +230,33 @@ fn astToFirInternal(ast_to_fir: *AstToFir) !void {
                     ast_to_fir.equave = e;
                 }
             },
-            .scale_edo => {
+            .scale_multi_ratio => |info| {
                 assert(@intFromEnum(root_child_length_modifier) == 0);
-                assert(@intFromEnum(root_child_equave_exponent) == 0);
 
                 ast_to_fir.startInstruction(.{
                     .scale = .{
-                        .equave_exponent = @enumFromInt(0),
+                        .equave_exponent = root_child_equave_exponent,
+                    },
+                });
+
+                const scale_tones_start = ast_to_fir.startTones();
+                try ast_to_fir.parseMultiRatio(root_child_main_token.?, info.children);
+                const tones = ast_to_fir.endTones(scale_tones_start);
+                assert(tones.len() > 0);
+
+                _ = try ast_to_fir.endInstruction(.{
+                    .scale = .{
+                        .tones = tones,
+                        .equave = .none,
+                    },
+                }, root_child_equave_shifted);
+            },
+            .scale_edo => {
+                assert(@intFromEnum(root_child_length_modifier) == 0);
+
+                ast_to_fir.startInstruction(.{
+                    .scale = .{
+                        .equave_exponent = root_child_equave_exponent,
                     },
                 });
 
@@ -261,11 +300,10 @@ fn astToFirInternal(ast_to_fir: *AstToFir) !void {
             },
             .scale_edx => |info| {
                 assert(@intFromEnum(root_child_length_modifier) == 0);
-                assert(@intFromEnum(root_child_equave_exponent) == 0);
 
                 ast_to_fir.startInstruction(.{
                     .scale = .{
-                        .equave_exponent = @enumFromInt(0),
+                        .equave_exponent = root_child_equave_exponent,
                     },
                 });
 
@@ -546,6 +584,87 @@ fn parseFractionFromNode(ast_to_fir: *AstToFir, node: Node.Index) !Fir.Fraction 
         },
         else => unreachable,
     };
+}
+
+fn parseMultiRatio(
+    ast_to_fir: *AstToFir,
+    main_token: Token.Index,
+    children: []const Node.Index,
+) !void {
+    assert(ast_to_fir.tones_started);
+
+    const denominator = try ast_to_fir.parseIntFromToken(main_token);
+
+    if (denominator == 0) {
+        try ast_to_fir.errors.append(ast_to_fir.allocator, .{
+            .tag = .denominator_zero,
+            .data = .{ .token = main_token },
+        });
+        return error.AstToFirError;
+    }
+
+    // TODO: non-implicit
+    _ = try ast_to_fir.appendTone(.{
+        .ratio = .{
+            .equave_exponent = @enumFromInt(0),
+            .ratio = .{
+                .numerator = denominator,
+                .denominator = denominator,
+            },
+        },
+    }, null);
+
+    var previous = denominator;
+    for (children) |part| {
+        switch (ast_to_fir.ast.nodeTag(part)) {
+            .single_colon_multi_ratio_part => {
+                const numerator = try ast_to_fir.parseIntFromToken(ast_to_fir.ast.nodeMainToken(part).?);
+                previous = numerator;
+                _ = try ast_to_fir.appendTone(.{
+                    .ratio = .{
+                        .equave_exponent = @enumFromInt(0),
+                        .ratio = .{
+                            .numerator = numerator,
+                            .denominator = denominator,
+                        },
+                    },
+                }, part);
+            },
+            .double_colon_multi_ratio_part => {
+                const end = try ast_to_fir.parseIntFromToken(ast_to_fir.ast.nodeMainToken(part).?);
+                defer previous = end;
+
+                if (previous < end) {
+                    for (previous..end) |numerator_minus_one| {
+                        const numerator: u32 = @intCast(numerator_minus_one + 1);
+                        _ = try ast_to_fir.appendTone(.{
+                            .ratio = .{
+                                .equave_exponent = @enumFromInt(0),
+                                .ratio = .{
+                                    .numerator = numerator,
+                                    .denominator = denominator,
+                                },
+                            },
+                        }, part);
+                    }
+                } else {
+                    var numerator = previous - 1;
+                    while (numerator >= end) : (numerator -= 1) {
+                        _ = try ast_to_fir.appendTone(.{
+                            .ratio = .{
+                                .equave_exponent = @enumFromInt(0),
+                                .ratio = .{
+                                    .numerator = numerator,
+                                    .denominator = denominator,
+                                },
+                            },
+                        }, part);
+                    }
+                }
+            },
+            else => unreachable,
+        }
+    }
 }
 
 fn startTones(ast_to_fir: *AstToFir) Tone.Index {
