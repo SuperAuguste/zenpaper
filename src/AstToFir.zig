@@ -98,11 +98,7 @@ pub fn astToFir(
     assert(scale == ast_to_fir.scale);
 
     // Initialize default root frequency.
-    ast_to_fir.startInstruction(.{
-        .root_frequency = .{
-            .equave_exponent = @enumFromInt(0),
-        },
-    });
+    ast_to_fir.startInstruction(.root_frequency);
 
     const root_frequency = try ast_to_fir.appendTone(.{
         .hz = .{
@@ -260,6 +256,118 @@ fn astToFirInternal(ast_to_fir: *AstToFir) !void {
                     .scale = .{
                         .tones = tones,
                         .equave = .wrap(ast_to_fir.equave),
+                    },
+                }, root_child);
+            },
+            .scale_edx => |info| {
+                assert(@intFromEnum(root_child_length_modifier) == 0);
+                assert(@intFromEnum(root_child_equave_exponent) == 0);
+
+                ast_to_fir.startInstruction(.{
+                    .scale = .{
+                        .equave_exponent = @enumFromInt(0),
+                    },
+                });
+
+                const divisions = try ast_to_fir.parseIntFromToken(root_child_main_token.?);
+                if (divisions == 0) {
+                    try ast_to_fir.errors.append(ast_to_fir.allocator, .{
+                        .tag = .denominator_zero,
+                        .data = .{ .token = root_child_main_token.? },
+                    });
+                    return error.AstToFirError;
+                }
+
+                const equave = try ast_to_fir.parseFractionFromNode(info.equave);
+
+                const tones_start = ast_to_fir.startTones();
+                for (0..12) |index| {
+                    _ = try ast_to_fir.appendTone(.{
+                        .edxstep = .{
+                            .equave_exponent = @enumFromInt(0),
+                            .edostep = @intCast(index),
+                            .divisions = divisions,
+                            .equave = equave,
+                        },
+                    }, null);
+                }
+                const tones = ast_to_fir.endTones(tones_start);
+                assert(tones.len() > 0);
+
+                ast_to_fir.equave = try ast_to_fir.appendTone(.{
+                    .ratio = .{
+                        .equave_exponent = @enumFromInt(0),
+                        .ratio = equave,
+                    },
+                }, null);
+                ast_to_fir.scale = try ast_to_fir.endInstruction(.{
+                    .scale = .{
+                        .tones = tones,
+                        .equave = .wrap(ast_to_fir.equave),
+                    },
+                }, root_child);
+            },
+            .scale_mode => |info| {
+                assert(@intFromEnum(root_child_length_modifier) == 0);
+                assert(@intFromEnum(root_child_equave_exponent) == 0);
+
+                ast_to_fir.startInstruction(.{
+                    .scale = .{
+                        .equave_exponent = @enumFromInt(0),
+                    },
+                });
+
+                const tones_start = ast_to_fir.startTones();
+                var degree: u32 = 0;
+                _ = try ast_to_fir.appendTone(.{
+                    .degree = .{
+                        .equave_exponent = @enumFromInt(0),
+                        .scale = ast_to_fir.scale,
+                        .degree = degree,
+                    },
+                }, null);
+                for (info.children[0 .. info.children.len - 1]) |scale_mode_child| {
+                    degree = std.math.add(
+                        u32,
+                        degree,
+                        try ast_to_fir.parseIntFromToken(
+                            ast_to_fir.ast.nodeMainToken(scale_mode_child).?,
+                        ),
+                    ) catch {
+                        try ast_to_fir.errors.append(ast_to_fir.allocator, .{
+                            .tag = .mode_overflow,
+                            .data = .{ .token = ast_to_fir.ast.nodeMainToken(scale_mode_child).? },
+                        });
+                        return error.AstToFirError;
+                    };
+
+                    _ = try ast_to_fir.appendTone(.{
+                        .degree = .{
+                            .equave_exponent = @enumFromInt(0),
+                            .scale = ast_to_fir.scale,
+                            .degree = degree,
+                        },
+                    }, null);
+                }
+                const tones = ast_to_fir.endTones(tones_start);
+                assert(tones.len() > 0);
+
+                ast_to_fir.scale = try ast_to_fir.endInstruction(.{
+                    .scale = .{
+                        .tones = tones,
+                        .equave = .wrap(ast_to_fir.equave),
+                    },
+                }, root_child);
+            },
+            .root_frequency => |info| {
+                assert(@intFromEnum(root_child_length_modifier) == 0);
+                assert(@intFromEnum(root_child_equave_exponent) == 0);
+
+                ast_to_fir.startInstruction(.root_frequency);
+                ast_to_fir.root_frequency = try ast_to_fir.nodeToTone(info.child);
+                ast_to_fir.scale = try ast_to_fir.endInstruction(.{
+                    .root_frequency = .{
+                        .tone = ast_to_fir.root_frequency,
                     },
                 }, root_child);
             },
@@ -453,9 +561,7 @@ fn endTones(ast_to_fir: *AstToFir, start: Tone.Index) Tone.Range {
 }
 
 const StartInstruction = union(Instruction.Tag) {
-    root_frequency: struct {
-        equave_exponent: EquaveExponent,
-    },
+    root_frequency,
     note: struct {
         length_modifier: LengthModifier,
     },
@@ -500,9 +606,9 @@ fn endInstruction(
     const data: Fir.Instruction.Data = sw: switch (end) {
         .root_frequency => |end_info| {
             const start_info = start.root_frequency;
+            _ = start_info; // autofix
             break :sw .{
                 .root_frequency = .{
-                    .equave_exponent = start_info.equave_exponent,
                     .root_frequency = ast_to_fir.root_frequency,
                     .tone = end_info.tone,
                 },
@@ -552,7 +658,7 @@ fn appendTone(ast_to_fir: *AstToFir, data: Fir.Tone.Data, src_node: ?Ast.Node.In
         else => .frequency,
     };
     const instruction_equave_exponent: Fir.EquaveExponent = switch (ast_to_fir.started_instruction.?) {
-        .note => @enumFromInt(0),
+        .root_frequency, .note => @enumFromInt(0),
         inline else => |info| @field(info, "equave_exponent"),
     };
 

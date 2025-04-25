@@ -103,7 +103,6 @@ pub const Instruction = struct {
     pub const Tag = std.meta.Tag(Data);
     pub const Data = union(enum(u8)) {
         root_frequency: struct {
-            equave_exponent: EquaveExponent,
             root_frequency: Tone.Index,
             tone: Tone.Index,
         },
@@ -142,6 +141,8 @@ pub const Error = struct {
         invalid_float,
         /// token
         denominator_zero,
+        /// token
+        mode_overflow,
     };
 
     pub const Data = union {
@@ -161,6 +162,9 @@ pub const Error = struct {
             },
             .denominator_zero => {
                 try writer.print("denominator cannot be zero\n", .{});
+            },
+            .mode_overflow => {
+                try writer.print("mode overflow\n", .{});
             },
         }
     }
@@ -252,7 +256,7 @@ pub fn debugPrint(fir: *const Fir) void {
 
         switch (data) {
             .root_frequency => |info| {
-                std.debug.print("  equave exponent {d}\n  ", .{@intFromEnum(info.equave_exponent)});
+                std.debug.print("  ", .{});
                 fir.debugPrintTone(info.tone);
                 std.debug.print("\n", .{});
             },
