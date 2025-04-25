@@ -92,6 +92,13 @@ fn play(allocator: std.mem.Allocator, args: *std.process.ArgIterator) !u8 {
     var fir = try AstToFir.astToFir(allocator, source, &tokens, &ast);
     defer fir.deinit(allocator);
 
+    if (fir.errors.len > 0) {
+        for (fir.errors) |@"error"| {
+            try @"error".render(std.io.getStdErr().writer());
+        }
+        return 1;
+    }
+
     fir.debugPrint();
 
     // try PortAudio.init();

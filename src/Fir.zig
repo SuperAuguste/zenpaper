@@ -1,5 +1,7 @@
 const std = @import("std");
 const Ast = @import("Ast.zig");
+const Tokenizer = @import("Tokenizer.zig");
+const Token = Tokenizer.Token;
 const Extra = @import("Extra.zig");
 
 const Fir = @This();
@@ -132,14 +134,48 @@ pub const Instruction = struct {
     equave: Tone.Index,
 };
 
+pub const Error = struct {
+    pub const Tag = enum(u8) {
+        /// token
+        invalid_integer,
+        /// token
+        invalid_float,
+        /// token
+        denominator_zero,
+    };
+
+    pub const Data = union {
+        token: Token.Index,
+    };
+
+    tag: Tag,
+    data: Data,
+
+    pub fn render(@"error": Error, writer: anytype) @TypeOf(writer).Error!void {
+        switch (@"error".tag) {
+            .invalid_integer => {
+                try writer.print("invalid integer\n", .{});
+            },
+            .invalid_float => {
+                try writer.print("invalid float\n", .{});
+            },
+            .denominator_zero => {
+                try writer.print("denominator cannot be zero\n", .{});
+            },
+        }
+    }
+};
+
 instructions: std.MultiArrayList(Instruction).Slice,
 tones: std.MultiArrayList(Tone).Slice,
 extra: []const u32,
+errors: []const Error,
 
 pub fn deinit(fir: *Fir, allocator: std.mem.Allocator) void {
     fir.instructions.deinit(allocator);
     fir.tones.deinit(allocator);
     allocator.free(fir.extra);
+    allocator.free(fir.errors);
     fir.* = undefined;
 }
 

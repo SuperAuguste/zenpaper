@@ -10,6 +10,7 @@ const Instruction = Fir.Instruction;
 const Tone = Fir.Tone;
 const EquaveExponent = Fir.EquaveExponent;
 const LengthModifier = Fir.LengthModifier;
+const Error = Fir.Error;
 
 const AstToFir = @This();
 
@@ -21,6 +22,7 @@ ast: *const Ast,
 instructions: std.MultiArrayList(Instruction),
 tones: std.MultiArrayList(Tone),
 extra: std.ArrayListUnmanaged(u32),
+errors: std.ArrayListUnmanaged(Error),
 
 root_frequency: Tone.Index,
 equave: Tone.Index,
@@ -33,7 +35,7 @@ pub fn astToFir(
     source: []const u8,
     tokens: *const Tokens,
     ast: *const Ast,
-) !Fir {
+) error{OutOfMemory}!Fir {
     assert(ast.errors.len == 0);
 
     var ast_to_fir = AstToFir{
@@ -45,6 +47,7 @@ pub fn astToFir(
         .instructions = .empty,
         .tones = .empty,
         .extra = .empty,
+        .errors = .empty,
 
         .root_frequency = @enumFromInt(1 + 12),
         .equave = @enumFromInt(0),
@@ -126,12 +129,26 @@ pub fn astToFir(
         },
     }, null);
 
-    try ast_to_fir.astToFirInternal();
+    ast_to_fir.astToFirInternal() catch |err| switch (err) {
+        error.AstToFirError => {
+            std.debug.assert(ast_to_fir.errors.items.len > 0);
+            return .{
+                .instructions = ast_to_fir.instructions.toOwnedSlice(),
+                .tones = ast_to_fir.tones.toOwnedSlice(),
+                .extra = try ast_to_fir.extra.toOwnedSlice(allocator),
+                .errors = try ast_to_fir.errors.toOwnedSlice(allocator),
+            };
+        },
+        error.OutOfMemory => return error.OutOfMemory,
+    };
+
+    std.debug.assert(ast_to_fir.errors.items.len == 0);
 
     return .{
         .instructions = ast_to_fir.instructions.toOwnedSlice(),
         .tones = ast_to_fir.tones.toOwnedSlice(),
         .extra = try ast_to_fir.extra.toOwnedSlice(allocator),
+        .errors = try ast_to_fir.errors.toOwnedSlice(allocator),
     };
 }
 
@@ -247,6 +264,58 @@ fn astToFirInternal(ast_to_fir: *AstToFir) !void {
                     },
                 }, root_child);
             },
+            .scale_edo => {
+                const tones_start = ast_to_fir.startTones();
+
+                const divisions = try ast_to_fir.parseIntFromToken(root_child_main_token.?);
+
+                if (divisions == 0) {
+                    try ast_to_fir.errors.append(ast_to_fir.allocator, .{
+                        .tag = .denominator_zero,
+                        .data = .{ .token = root_child_main_token.? },
+                    });
+                    return error.AstToFirError;
+                }
+
+                for (0..12) |index| {
+                    _ = try ast_to_fir.appendTone(.{
+                        .edostep = .{
+                            .equave_exponent = @enumFromInt(0),
+                            .edostep = @intCast(index),
+                            .divisions = divisions,
+                        },
+                    }, .{
+                        .value_kind = .ratio,
+                        .instruction_equave_exponent = @enumFromInt(0),
+                        .src_node = null,
+                    });
+                }
+
+                const tones = ast_to_fir.endTones(tones_start);
+
+                assert(tones.len() > 0);
+
+                ast_to_fir.equave = try ast_to_fir.appendTone(.{
+                    .ratio = .{
+                        .equave_exponent = @enumFromInt(0),
+                        .ratio = .{
+                            .numerator = 2,
+                            .denominator = 1,
+                        },
+                    },
+                }, .{
+                    .value_kind = .ratio,
+                    .instruction_equave_exponent = @enumFromInt(0),
+                    .src_node = null,
+                });
+                ast_to_fir.scale = try ast_to_fir.appendInstruction(.{
+                    .scale = .{
+                        .equave_exponent = root_child_equave_exponent,
+                        .tones = tones,
+                        .equave = .wrap(ast_to_fir.equave),
+                    },
+                }, root_child);
+            },
             else => @panic("TODO"),
         }
     }
@@ -293,14 +362,27 @@ fn nodeToTone(
                 .degree = try ast_to_fir.parseIntFromToken(main_token.?),
             },
         },
-        .ratio => |info| .{
-            .ratio = .{
-                .equave_exponent = equave_exponent,
+        .ratio => |info| blk: {
+            const numerator = try ast_to_fir.parseIntFromToken(main_token.?);
+            const denominator = try ast_to_fir.parseIntFromToken(info.denominator);
+
+            if (denominator == 0) {
+                try ast_to_fir.errors.append(ast_to_fir.allocator, .{
+                    .tag = .denominator_zero,
+                    .data = .{ .token = info.denominator },
+                });
+                return error.AstToFirError;
+            }
+
+            break :blk .{
                 .ratio = .{
-                    .numerator = try ast_to_fir.parseIntFromToken(main_token.?),
-                    .denominator = try ast_to_fir.parseIntFromToken(info.denominator),
+                    .equave_exponent = equave_exponent,
+                    .ratio = .{
+                        .numerator = numerator,
+                        .denominator = denominator,
+                    },
                 },
-            },
+            };
         },
         .cents => |info| .{
             .cents = .{
@@ -312,7 +394,11 @@ fn nodeToTone(
             const edostep = try ast_to_fir.parseIntFromToken(main_token.?);
             const divisions = try ast_to_fir.parseIntFromToken(info.divisions);
             if (divisions == 0) {
-                return error.SpoolError;
+                try ast_to_fir.errors.append(ast_to_fir.allocator, .{
+                    .tag = .denominator_zero,
+                    .data = .{ .token = info.divisions },
+                });
+                return error.AstToFirError;
             }
 
             break :blk .{
@@ -327,6 +413,10 @@ fn nodeToTone(
             const edostep = try ast_to_fir.parseIntFromToken(main_token.?);
             const divisions = try ast_to_fir.parseIntFromToken(info.divisions);
             if (divisions == 0) {
+                try ast_to_fir.errors.append(ast_to_fir.allocator, .{
+                    .tag = .denominator_zero,
+                    .data = .{ .token = info.divisions },
+                });
                 return error.AstToFirError;
             }
             const equave = try ast_to_fir.parseFractionFromNode(info.equave);
@@ -350,22 +440,34 @@ fn nodeToTone(
     }, tone_additional_info);
 }
 
-fn parseIntFromToken(ast_to_fir: *const AstToFir, token: Token.Index) !u32 {
+fn parseIntFromToken(ast_to_fir: *AstToFir, token: Token.Index) !u32 {
     return std.fmt.parseInt(
         u32,
         ast_to_fir.tokens.sliceSource(ast_to_fir.source, token),
         10,
-    );
+    ) catch {
+        try ast_to_fir.errors.append(ast_to_fir.allocator, .{
+            .tag = .invalid_integer,
+            .data = .{ .token = token },
+        });
+        return error.AstToFirError;
+    };
 }
 
 fn parseFloatFromTokens(
-    ast_to_fir: *const AstToFir,
+    ast_to_fir: *AstToFir,
     whole_part: Token.Index,
     fractional_part: ?Token.Index,
 ) !f32 {
     const start = ast_to_fir.tokens.range(whole_part).start;
     const end = ast_to_fir.tokens.range(fractional_part orelse whole_part).end;
-    return std.fmt.parseFloat(f32, ast_to_fir.source[start..end]);
+    return std.fmt.parseFloat(f32, ast_to_fir.source[start..end]) catch {
+        try ast_to_fir.errors.append(ast_to_fir.allocator, .{
+            .tag = .invalid_float,
+            .data = .{ .token = whole_part },
+        });
+        return error.AstToFirError;
+    };
 }
 
 fn parseFractionFromNode(ast_to_fir: *AstToFir, node: Node.Index) !Fir.Fraction {
@@ -378,6 +480,10 @@ fn parseFractionFromNode(ast_to_fir: *AstToFir, node: Node.Index) !Fir.Fraction 
             const numerator = try ast_to_fir.parseIntFromToken(ast_to_fir.ast.nodeMainToken(node).?);
             const denominator = try ast_to_fir.parseIntFromToken(info.denominator);
             if (denominator == 0) {
+                try ast_to_fir.errors.append(ast_to_fir.allocator, .{
+                    .tag = .denominator_zero,
+                    .data = .{ .token = info.denominator },
+                });
                 return error.AstToFirError;
             }
             break :blk .{

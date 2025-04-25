@@ -83,6 +83,7 @@ fn parseInternal(parser: *Parser) !void {
     };
 }
 
+// TODO: Refactor to make '{12edo} and similar illegal
 fn parseRootChild(parser: *Parser) !Node.Index {
     const start_equave_shifted_optional = try parser.startEquaveShifted();
 
