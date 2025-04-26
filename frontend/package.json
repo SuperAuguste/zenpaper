@@ -1,0 +1,29 @@
+{
+  "name": "zenpaper-frontend",
+  "version": "1.0.0",
+  "dependencies": {
+    "@codemirror/commands": "^6.8.1",
+    "@codemirror/state": "^6.5.2",
+    "@codemirror/view": "^6.36.6"
+  },
+  "devDependencies": {
+    "parcel": "^2.14.4"
+  },
+  "scripts": {
+    "serve": "parcel index.html"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/SuperAuguste/zenpaper.git"
+  },
+  "author": "Auguste Rame",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/SuperAuguste/zenpaper/issues"
+  },
+  "homepage": "https://github.com/SuperAuguste/zenpaper#readme",
+  "description": "",
+  "browserslist": [
+    "since 2017-06"
+  ]
+}

@@ -53,4 +53,26 @@ pub fn build(b: *std.Build) !void {
 
     const run_step = b.step("run", "Run the app");
     run_step.dependOn(&run_cmd.step);
+
+    const wasm_agent = b.addExecutable(.{
+        .name = "zenpaper-wasm-agent",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/wasm_agent.zig"),
+            .target = b.resolveTargetQuery(.{
+                .cpu_arch = .wasm32,
+                .os_tag = .freestanding,
+            }),
+            .optimize = optimize,
+        }),
+    });
+    wasm_agent.entry = .disabled;
+    wasm_agent.rdynamic = true;
+    wasm_agent.import_memory = true;
+    wasm_agent.export_memory = false;
+
+    const build_wasm_agent_step = b.step("build-wasm-agent", "Build WASM agent; assumes repository setup");
+    build_wasm_agent_step.dependOn(&b.addInstallFile(
+        wasm_agent.getEmittedBin(),
+        "../frontend/zenpaper-wasm-agent.wasm",
+    ).step);
 }
