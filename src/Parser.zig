@@ -4,6 +4,7 @@ const Node = Ast.Node;
 const Tokenizer = @import("Tokenizer.zig");
 const Token = Tokenizer.Token;
 const Tokens = Tokenizer.Tokens;
+const Extra = @import("Extra.zig");
 
 const Parser = @This();
 
@@ -76,13 +77,14 @@ fn parseInternal(parser: *Parser) !void {
     popped_scratch[0] = @intCast(popped_scratch.len - 1);
     try parser.extra.appendSlice(parser.allocator, popped_scratch);
     parser.nodes.items(.untagged_data)[@intFromEnum(root)] = .{
-        .root = .{
-            .start = @enumFromInt(extra_start),
-            .end = @enumFromInt(parser.extra.items.len),
+        .internal = .{
+            .root = @enumFromInt(extra_start),
         },
     };
 }
 
+// TODO: Refactor to keep '{12edo}/'{12ed2} legal, make '{r440hz} illegal;
+// TODO: split out the code from parseScale to achieve aforementioned
 fn parseRootChild(parser: *Parser) !Node.Index {
     const start_equave_shifted_optional = try parser.startEquaveShifted();
 
@@ -727,40 +729,7 @@ fn appendNode(parser: *Parser, data: Node.Data, main_token: ?Token.Index) !Node.
     try parser.nodes.append(parser.allocator, .{
         .tag = data,
         .main_token = .wrap(main_token),
-        .untagged_data = switch (data) {
-            inline else => |value, tag| blk: {
-                const T = @TypeOf(value);
-
-                if (@bitSizeOf(T) <= 64) {
-                    break :blk @unionInit(Node.Data.Untagged, @tagName(tag), value);
-                } else {
-                    const start: Ast.ExtraIndex = @enumFromInt(parser.extra.items.len);
-                    inline for (std.meta.fields(T)) |field| {
-                        switch (field.type) {
-                            Token.Index, Node.Index, Token.OptionalIndex, Node.OptionalIndex => try parser.extra.append(
-                                parser.allocator,
-                                @intFromEnum(@field(value, field.name)),
-                            ),
-                            []const Node.Index => {
-                                try parser.extra.append(
-                                    parser.allocator,
-                                    @intCast(@field(value, field.name).len),
-                                );
-                                try parser.extra.appendSlice(
-                                    parser.allocator,
-                                    @ptrCast(@field(value, field.name)),
-                                );
-                            },
-                            else => @compileError("TODO: " ++ @typeName(field.type)),
-                        }
-                    }
-                    break :blk @unionInit(Node.Data.Untagged, @tagName(tag), .{
-                        .start = start,
-                        .end = @enumFromInt(parser.extra.items.len),
-                    });
-                }
-            },
-        },
+        .untagged_data = try .fromTagged(parser.allocator, &parser.extra, data),
     });
     return @enumFromInt(parser.nodes.len - 1);
 }

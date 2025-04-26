@@ -4,7 +4,8 @@ const Tokenizer = @import("Tokenizer.zig");
 const Parser = @import("Parser.zig");
 const PortAudio = @import("PortAudio.zig");
 const NoteSpool = @import("NoteSpool.zig");
-const AstToSpool = @import("AstToSpool.zig");
+const AstToFir = @import("AstToFir.zig");
+const FirToSpool = @import("FirToSpool.zig");
 
 fn help() void {
     std.log.info(
@@ -88,6 +89,18 @@ fn play(allocator: std.mem.Allocator, args: *std.process.ArgIterator) !u8 {
         return 1;
     }
 
+    var fir = try AstToFir.astToFir(allocator, source, &tokens, &ast);
+    defer fir.deinit(allocator);
+
+    if (fir.errors.len > 0) {
+        for (fir.errors) |@"error"| {
+            try @"error".render(std.io.getStdErr().writer());
+        }
+        return 1;
+    }
+
+    // fir.debugPrint();
+
     try PortAudio.init();
     defer PortAudio.deinit();
 
@@ -106,7 +119,11 @@ fn play(allocator: std.mem.Allocator, args: *std.process.ArgIterator) !u8 {
         default_output_device_info.defaultSampleRate,
     });
 
-    var note_spool = try AstToSpool.astToSpool(allocator, source, &tokens, &ast, @floatCast(default_output_device_info.defaultSampleRate));
+    var note_spool = try FirToSpool.firToSpool(
+        allocator,
+        &fir,
+        @floatCast(default_output_device_info.defaultSampleRate),
+    );
     defer note_spool.deinit(allocator);
 
     // note_spool.debugPrint();

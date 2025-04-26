@@ -84,10 +84,12 @@ zenpaper play my_tune.zp
 - You can equave-shift chords, so something like `'1:2:3` or `"[0 3 5]` is permissible
 - Likewise, you can equave-shift scales; this uses the equave from before the new scale and is also
   applied to the new equave
+  - This also works on the `{...edo}` and `{...ed...}` shorthands, though these preserve their original unshifted equaves
+  - TODO: this behavior is sort of buggy and weird and I'm not sure it's desirable - maybe we should preserve equave shifts on chords and ban it for scales?
+- Like in xenpaper, you cannot equave shift root frequencies (shift the note rather than the root frequency expression)
 - The default root frequency is `220hz`. This is [actually what Xenpaper's root frequency is](https://github.com/dxinteractive/xenpaper/blob/4684a16be8f2ceaa387406ad5abc67c6862bc341/packages/xenpaper-ui/src/data/process-grammar.ts#L659) despite
 the docs saying otherwise, so this is not really a difference
 - Descending multi-ratios behave correctly (e.g. 3::1 and 3:2:1 are equivalent)
-- The last degree of a mode must complete the equave
 - My ADSR is really questionable and does not match xenpaper's - I'll have to look at 
   tonejs' ADSR and replicate that
 

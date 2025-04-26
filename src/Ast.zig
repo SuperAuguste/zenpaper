@@ -1,14 +1,9 @@
 const std = @import("std");
 const Tokenizer = @import("Tokenizer.zig");
 const Token = Tokenizer.Token;
+const Extra = @import("Extra.zig");
 
 const Ast = @This();
-
-pub const ExtraIndex = enum(u32) { _ };
-pub const ExtraSlice = struct {
-    start: ExtraIndex,
-    end: ExtraIndex,
-};
 
 pub const Node = struct {
     pub const Index = enum(u32) { root, _ };
@@ -98,50 +93,15 @@ pub const Node = struct {
         /// main_token is the number of divisions
         /// equave is an integer or a fraction
         scale_edx: struct { equave: Node.Index },
+        /// main_token is keyword_m
+        /// children are integers
         scale_mode: struct { children: []const Node.Index },
 
         /// main_token is keyword_r
         root_frequency: struct { child: Node.Index },
 
-        // TODO: Currently wasteful as we store start and end + lengths within extra.
-        // We could make things more flexible or switch to start only with a 32-bit .untagged_data.
-        fn MoveOversizedToExtra(comptime T: type) type {
-            return switch (@typeInfo(T)) {
-                .@"struct" => |_| {
-                    return if (@bitSizeOf(T) > 64)
-                        ExtraSlice
-                    else
-                        T;
-                },
-                else => T,
-            };
-        }
-
-        pub const Untagged = blk: {
-            const src_fields = @typeInfo(Data).@"union".fields;
-            var dst_fields: [src_fields.len]std.builtin.Type.UnionField = src_fields[0..src_fields.len].*;
-
-            for (&dst_fields) |*field| {
-                field.type = MoveOversizedToExtra(field.type);
-                std.debug.assert(@bitSizeOf(field.type) <= 64);
-            }
-
-            break :blk @Type(.{
-                .@"union" = .{
-                    .layout = .auto,
-                    .tag_type = null,
-                    .fields = &dst_fields,
-                    .decls = &.{},
-                },
-            });
-        };
+        pub const Untagged = Extra.Untagged(Data);
     };
-
-    comptime {
-        if (!std.debug.runtime_safety) {
-            std.debug.assert(@bitSizeOf(Data.Untagged) == 64);
-        }
-    }
 
     tag: Tag,
     main_token: Token.OptionalIndex,
@@ -218,40 +178,7 @@ pub fn nodeUntaggedData(ast: *const Ast, node: Node.Index) Node.Data.Untagged {
 }
 
 pub fn nodeDataFromUntagged(ast: *const Ast, tag: Node.Tag, untagged: Node.Data.Untagged) Node.Data {
-    return switch (tag) {
-        inline else => |actual_tag| {
-            const untagged_data = @field(untagged, @tagName(actual_tag));
-            const Untagged = @TypeOf(untagged_data);
-            const Tagged = @FieldType(Node.Data, @tagName(actual_tag));
-
-            if (Untagged != ExtraSlice) {
-                return @unionInit(Node.Data, @tagName(actual_tag), untagged_data);
-            } else {
-                var index: u32 = 0;
-                const slice = ast.extra[@intFromEnum(untagged_data.start)..@intFromEnum(untagged_data.end)];
-
-                var data: Tagged = undefined;
-
-                inline for (std.meta.fields(Tagged)) |field| {
-                    switch (field.type) {
-                        Token.Index, Node.Index, Token.OptionalIndex, Node.OptionalIndex => {
-                            @field(data, field.name) = @enumFromInt(slice[index]);
-                            index += 1;
-                        },
-                        []const Node.Index => {
-                            const len = slice[index];
-                            index += 1;
-                            @field(data, field.name) = @ptrCast(slice[index..][0..len]);
-                            index += len;
-                        },
-                        else => @compileError("TODO: " ++ @typeName(field.type)),
-                    }
-                }
-
-                return @unionInit(Node.Data, @tagName(actual_tag), data);
-            }
-        },
-    };
+    return untagged.toTagged(ast.extra, tag);
 }
 
 pub fn nodeData(ast: *const Ast, node: Node.Index) Node.Data {
