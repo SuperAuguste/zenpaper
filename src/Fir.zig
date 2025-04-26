@@ -1,3 +1,10 @@
+//! Fir (flattened IR) transforms the Ast into a set of instructions and tones.
+//! Instructions describe top-level actions like playing a note or changing a scale,
+//! whereas tones represent frequencies and ratios used in those higher level actions.
+//!
+//! This IR is trivially convertible to our NoteSpool (see FirToSpool.zig) and can also
+//! be used in editing/interactive environments to tease out semantic information.
+
 const std = @import("std");
 const Ast = @import("Ast.zig");
 const Tokenizer = @import("Tokenizer.zig");
@@ -17,6 +24,11 @@ pub const Fraction = struct {
         return @as(f32, @floatFromInt(fraction.numerator)) /
             @as(f32, @floatFromInt(fraction.denominator));
     }
+};
+
+pub const Timing = struct {
+    start_seconds: f32,
+    end_seconds: f32,
 };
 
 pub const Tone = struct {
@@ -110,12 +122,14 @@ pub const Instruction = struct {
             root_frequency: Tone.Index,
             tone: Tone.Index,
             length_modifier: LengthModifier,
+            timing: Timing,
         },
         chord: struct {
             equave_exponent: EquaveExponent,
             root_frequency: Tone.Index,
             tones: Tone.Range,
             length_modifier: LengthModifier,
+            timing: Timing,
         },
         scale: struct {
             equave_exponent: EquaveExponent,
@@ -261,11 +275,14 @@ pub fn debugPrint(fir: *const Fir) void {
                 std.debug.print("\n", .{});
             },
             .note => |info| {
+                std.debug.print("  timing {d}..{d}\n", .{ info.timing.start_seconds, info.timing.end_seconds });
+
                 std.debug.print("  ", .{});
                 fir.debugPrintTone(info.tone);
                 std.debug.print("\n", .{});
             },
             .chord => |info| {
+                std.debug.print("  timing {d}..{d}\n", .{ info.timing.start_seconds, info.timing.end_seconds });
                 std.debug.print("  children:\n", .{});
                 for (@intFromEnum(info.tones.start)..@intFromEnum(info.tones.end)) |tone_index| {
                     std.debug.print("    ", .{});

@@ -28,6 +28,10 @@ root_frequency: Tone.Index,
 equave: Tone.Index,
 scale: Instruction.Index,
 
+time_seconds: f32,
+bpm: f32,
+beat_division: f32,
+
 started_instruction: ?StartInstruction,
 tones_started: bool,
 
@@ -53,6 +57,10 @@ pub fn astToFir(
         .root_frequency = @enumFromInt(1 + 12),
         .equave = @enumFromInt(0),
         .scale = @enumFromInt(0),
+
+        .time_seconds = 0,
+        .bpm = 120,
+        .beat_division = 2,
 
         .started_instruction = null,
         .tones_started = false,
@@ -740,6 +748,7 @@ fn endInstruction(
                     .root_frequency = ast_to_fir.root_frequency,
                     .tone = end_info.tone,
                     .length_modifier = start_info.length_modifier,
+                    .timing = ast_to_fir.toneTiming(start_info.length_modifier),
                 },
             };
         },
@@ -751,6 +760,7 @@ fn endInstruction(
                     .root_frequency = ast_to_fir.root_frequency,
                     .tones = end_info.tones,
                     .length_modifier = start_info.length_modifier,
+                    .timing = ast_to_fir.toneTiming(start_info.length_modifier),
                 },
             };
         },
@@ -767,6 +777,20 @@ fn endInstruction(
     };
 
     return try ast_to_fir.appendInstructionRaw(data, ast_to_fir.equave, src_node);
+}
+
+fn toneDuration(ast_to_fir: *const AstToFir, length_modifier: LengthModifier) f32 {
+    const modifier: f32 = @floatFromInt(@intFromEnum(length_modifier));
+    return (1 + modifier) / (ast_to_fir.bpm / 60) / ast_to_fir.beat_division;
+}
+
+fn toneTiming(ast_to_fir: *AstToFir, length_modifier: LengthModifier) Fir.Timing {
+    const duration = ast_to_fir.toneDuration(length_modifier);
+    defer ast_to_fir.time_seconds += duration;
+    return .{
+        .start_seconds = ast_to_fir.time_seconds,
+        .end_seconds = ast_to_fir.time_seconds + duration,
+    };
 }
 
 fn appendTone(ast_to_fir: *AstToFir, data: Fir.Tone.Data, src_node: ?Ast.Node.Index) !Tone.Index {

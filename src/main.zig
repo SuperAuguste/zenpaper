@@ -4,8 +4,8 @@ const Tokenizer = @import("Tokenizer.zig");
 const Parser = @import("Parser.zig");
 const PortAudio = @import("PortAudio.zig");
 const NoteSpool = @import("NoteSpool.zig");
-// const AstToSpool = @import("AstToSpool.zig");
 const AstToFir = @import("AstToFir.zig");
+const FirToSpool = @import("FirToSpool.zig");
 
 fn help() void {
     std.log.info(
@@ -99,47 +99,51 @@ fn play(allocator: std.mem.Allocator, args: *std.process.ArgIterator) !u8 {
         return 1;
     }
 
-    fir.debugPrint();
+    // fir.debugPrint();
 
-    // try PortAudio.init();
-    // defer PortAudio.deinit();
+    try PortAudio.init();
+    defer PortAudio.deinit();
 
-    // const default_output_device_info = PortAudio.getDefaultOutputDeviceInfo() orelse {
-    //     std.log.err("could not obtain default output device", .{});
-    //     return 1;
-    // };
+    const default_output_device_info = PortAudio.getDefaultOutputDeviceInfo() orelse {
+        std.log.err("could not obtain default output device", .{});
+        return 1;
+    };
 
-    // if (default_output_device_info.maxOutputChannels < 2) {
-    //     std.log.err("default output device does not support stereo", .{});
-    //     return 1;
-    // }
+    if (default_output_device_info.maxOutputChannels < 2) {
+        std.log.err("default output device does not support stereo", .{});
+        return 1;
+    }
 
-    // std.log.debug("using default output device '{s}' with sample rate {d}", .{
-    //     default_output_device_info.name,
-    //     default_output_device_info.defaultSampleRate,
-    // });
+    std.log.debug("using default output device '{s}' with sample rate {d}", .{
+        default_output_device_info.name,
+        default_output_device_info.defaultSampleRate,
+    });
 
-    // var note_spool = try AstToSpool.astToSpool(allocator, source, &tokens, &ast, @floatCast(default_output_device_info.defaultSampleRate));
-    // defer note_spool.deinit(allocator);
+    var note_spool = try FirToSpool.firToSpool(
+        allocator,
+        &fir,
+        @floatCast(default_output_device_info.defaultSampleRate),
+    );
+    defer note_spool.deinit(allocator);
 
     // note_spool.debugPrint();
 
-    // const stream = try PortAudio.openDefaultStream(
-    //     NoteSpool,
-    //     .{
-    //         .input_channels = 0,
-    //         .output_channels = 2,
-    //         .sample_format = .f32,
-    //     },
-    //     realtime,
-    //     @floatCast(default_output_device_info.defaultSampleRate),
-    //     &note_spool,
-    // );
-    // try stream.start();
+    const stream = try PortAudio.openDefaultStream(
+        NoteSpool,
+        .{
+            .input_channels = 0,
+            .output_channels = 2,
+            .sample_format = .f32,
+        },
+        realtime,
+        @floatCast(default_output_device_info.defaultSampleRate),
+        &note_spool,
+    );
+    try stream.start();
 
-    // while (!@atomicLoad(bool, &note_spool.done, .acquire)) {}
+    while (!@atomicLoad(bool, &note_spool.done, .acquire)) {}
 
-    // try stream.stop();
+    try stream.stop();
 
     return 0;
 }
