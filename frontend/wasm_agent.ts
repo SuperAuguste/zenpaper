@@ -1,5 +1,6 @@
 import { Extension, Prec, RangeSetBuilder } from "@codemirror/state";
 import { Decoration, DecorationSet, EditorView, ViewPlugin, ViewUpdate } from "@codemirror/view";
+import { DocumentUpdatedOnePtr } from "./wasm_types";
 
 export class WasmAgent {
     private memory: WebAssembly.Memory;
@@ -30,26 +31,22 @@ export class WasmAgent {
     }
 
     // Exports
-    updateDocument(text: string) {
+    updateDocument(text: string): Highlight[] {
         const encoded = new TextEncoder().encode(text);
         const ptr = this.wasmExports.startDocumentUpdate(encoded.length);
         new Uint8Array(this.memory.buffer).set(encoded, ptr);
         const result = this.wasmExports.endDocumentUpdate();
 
-        const dv = new DataView(this.memory.buffer);
+        if (result == 0) {
+            return [];
+        }
 
         const highlights: Highlight[] = [];
 
-        const start = dv.getUint32(result, true);
-        const highlightSizeInBytes = 1 + 2 * 4;
-        const end = start + dv.getUint32(result + 4, true) * highlightSizeInBytes;
+        const document_updated = new DocumentUpdatedOnePtr(this.memory.buffer, result).deref();
     
-        for (let ptr = start; ptr < end; ptr += highlightSizeInBytes) {
-            highlights.push({
-                tag: dv.getUint8(ptr),
-                start: dv.getUint32(ptr + 1, true),
-                end: dv.getUint32(ptr + 5, true),
-            });
+        for (let index = 0; index < document_updated.highlights_len; index += 1) {
+            highlights.push(document_updated.highlights_ptr.deref(index));
         }
 
         return highlights;

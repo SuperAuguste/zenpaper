@@ -70,9 +70,21 @@ pub fn build(b: *std.Build) !void {
     wasm_agent.import_memory = true;
     wasm_agent.export_memory = false;
 
+    const generate_wasm_types = b.addExecutable(.{
+        .name = "generate-wasm-types",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/generate_wasm_types.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    const run_generate_wasm_types = b.addRunArtifact(generate_wasm_types);
+    run_generate_wasm_types.addFileArg(b.path("frontend/wasm_types.ts"));
+
     const build_wasm_agent_step = b.step("build-wasm-agent", "Build WASM agent; assumes repository setup");
     build_wasm_agent_step.dependOn(&b.addInstallFile(
         wasm_agent.getEmittedBin(),
         "../frontend/zenpaper-wasm-agent.wasm",
     ).step);
+    build_wasm_agent_step.dependOn(&run_generate_wasm_types.step);
 }
