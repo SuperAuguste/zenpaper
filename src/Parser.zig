@@ -161,10 +161,11 @@ fn parseChord(parser: *Parser) !Node.Index {
         try parser.appendNodeToScratch(try parser.parseChordChild());
     }
 
-    _ = parser.assertToken(.right_square);
+    const right_square = parser.assertToken(.right_square);
 
     return parser.appendNode(.{
         .chord = .{
+            .right_square = right_square,
             .children = @ptrCast(parser.popScratch(scratch_start)),
         },
     }, left_square);
@@ -213,10 +214,11 @@ fn parseScale(parser: *Parser) !Node.Index {
         switch (parser.peekTag(0)) {
             .single_quote => {
                 _ = parser.assertToken(.single_quote);
-                _ = try parser.expectToken(.right_curly);
+                const right_curly = try parser.expectToken(.right_curly);
 
                 return parser.appendNode(.{
                     .scale = .{
+                        .right_curly = right_curly,
                         .equave = .wrap(child),
                         .children = @ptrCast(parser.popScratch(scratch_start)),
                     },
@@ -226,10 +228,11 @@ fn parseScale(parser: *Parser) !Node.Index {
         }
     }
 
-    _ = parser.assertToken(.right_curly);
+    const right_curly = parser.assertToken(.right_curly);
 
     return parser.appendNode(.{
         .scale = .{
+            .right_curly = right_curly,
             .equave = .none,
             .children = @ptrCast(parser.popScratch(scratch_start)),
         },

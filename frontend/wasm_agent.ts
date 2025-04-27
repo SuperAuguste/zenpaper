@@ -1,6 +1,6 @@
 import { Extension, Prec, RangeSetBuilder } from "@codemirror/state";
 import { Decoration, DecorationSet, EditorView, ViewPlugin, ViewUpdate } from "@codemirror/view";
-import { DocumentUpdatedOnePtr } from "./wasm_types";
+import { DocumentUpdatedOnePtr, Highlight, HighlightTag } from "./wasm_types";
 
 export class WasmAgent {
     private memory: WebAssembly.Memory;
@@ -42,9 +42,7 @@ export class WasmAgent {
         }
 
         const highlights: Highlight[] = [];
-
         const document_updated = new DocumentUpdatedOnePtr(this.memory.buffer, result).deref();
-    
         for (let index = 0; index < document_updated.highlights_len; index += 1) {
             highlights.push(document_updated.highlights_ptr.deref(index));
         }
@@ -53,21 +51,11 @@ export class WasmAgent {
     }
 }
 
-enum HighlightTag {
-    amogus = 0,
-}
-
-interface Highlight {
-    tag: HighlightTag,
-    start: number,
-    end: number,
-}
-
 // TODO: Proper storage of WasmAgent per CodeMirror conventions (using a StateField).
 class Highlighter {
     public decorations: DecorationSet;
     private markCache: {[n: number]: Decoration} = {
-        [HighlightTag.amogus]: Decoration.mark({class: "amogus"}),
+        [HighlightTag.chord]: Decoration.mark({class: "chord"}),
     }
 
     constructor(view: EditorView, private wasmAgent: WasmAgent) {
@@ -91,8 +79,8 @@ class Highlighter {
 }
 
 const highlighterTheme = EditorView.theme({
-    ".amogus": {
-        color: "red",
+    ".chord": {
+        color: "green",
     },
 });
 

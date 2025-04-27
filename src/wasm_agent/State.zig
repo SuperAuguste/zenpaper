@@ -2,6 +2,8 @@ const std = @import("std");
 const assert = std.debug.assert;
 const Tokenizer = @import("../Tokenizer.zig");
 const Parser = @import("../Parser.zig");
+const Tokens = Tokenizer.Tokens;
+const Ast = @import("../Ast.zig");
 
 const State = @This();
 
@@ -14,11 +16,17 @@ pub const init = State{
     .status = .init,
     .document = .empty,
     .highlights = .empty,
+
+    .tokens = null,
+    .ast = null,
 };
 
 status: Status,
 document: std.ArrayListUnmanaged(u8),
 highlights: std.ArrayListUnmanaged(Highlight),
+
+tokens: ?Tokens,
+ast: ?Ast,
 
 pub fn documentSlice(state: *State) [:0]u8 {
     assert(state.status != .init);
@@ -48,30 +56,19 @@ pub fn updateDocument(
     assert(state.status == .document_update);
     defer state.status = .init;
 
+    if (state.tokens) |*tokens| tokens.deinit(allocator);
+    if (state.ast) |*ast| ast.deinit(allocator);
+
     const source = state.documentSlice();
 
-    var tokens = try Tokenizer.tokenize(allocator, source);
-    defer tokens.deinit(allocator);
+    state.tokens = try Tokenizer.tokenize(allocator, source);
+    state.ast = try Parser.parse(allocator, &state.tokens.?);
 
-    var ast = try Parser.parse(allocator, &tokens);
-    defer ast.deinit(allocator);
-
-    if (ast.errors.len > 0) {
+    if (state.ast.?.errors.len > 0) {
         return null;
     }
 
-    state.highlights.clearRetainingCapacity();
-
-    try state.highlights.append(allocator, .{
-        .tag = .amogus,
-        .start = 0,
-        .end = 10,
-    });
-    try state.highlights.append(allocator, .{
-        .tag = .amogus,
-        .start = 20,
-        .end = 30,
-    });
+    try state.updateHighlights(allocator);
 
     return result(DocumentUpdated{
         .highlights_ptr = state.highlights.items.ptr,
@@ -79,9 +76,48 @@ pub fn updateDocument(
     });
 }
 
+fn updateHighlights(state: *State, allocator: std.mem.Allocator) error{OutOfMemory}!void {
+    state.highlights.clearRetainingCapacity();
+
+    const ast = state.ast orelse return;
+    if (ast.errors.len > 0) return;
+
+    try state.highlightNode(allocator, .root);
+}
+
+fn highlightNode(
+    state: *State,
+    allocator: std.mem.Allocator,
+    node: Ast.Node.Index,
+) error{OutOfMemory}!void {
+    const tokens = state.tokens.?;
+    const ast = state.ast.?;
+    assert(ast.errors.len == 0);
+
+    switch (ast.nodeData(node)) {
+        .root => |info| {
+            for (info.children) |child| {
+                try state.highlightNode(allocator, child);
+            }
+        },
+        .chord => |info| {
+            try state.highlights.append(allocator, .{
+                .tag = .chord,
+                .start = tokens.range(ast.nodeMainToken(node).?).start,
+                .end = tokens.range(info.right_square).end,
+            });
+
+            for (info.children) |child| {
+                try state.highlightNode(allocator, child);
+            }
+        },
+        else => {},
+    }
+}
+
 pub const Highlight = extern struct {
     pub const Tag = enum(u8) {
-        amogus = 0,
+        chord = 0,
     };
 
     tag: Tag align(1),

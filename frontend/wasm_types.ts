@@ -61,6 +61,6 @@ export class Highlight {
 }
 
 export enum HighlightTag {
-    amogus = 0,
+    chord = 0,
 }
 

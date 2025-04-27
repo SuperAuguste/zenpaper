@@ -65,9 +65,12 @@ pub const Node = struct {
         /// main_token is period
         rest,
 
-        /// main_token is left_square or none in the case of an unwrapped multi_ratio
+        /// main_token is left_square
         /// can contain degree, ratio, cents, edostep, edxstep, hz, equave_up/down, multi_ratio
-        chord: struct { children: []const Node.Index },
+        chord: struct {
+            right_square: Token.Index,
+            children: []const Node.Index,
+        },
 
         /// main_token is the ratio base
         /// can contain single_colon_multi_ratio_part, double_colon_multi_ratio_part
@@ -81,6 +84,7 @@ pub const Node = struct {
         /// main_token is left_curly
         /// can contain degree, ratio, cents, edostep, edxstep, equave_up/down
         scale: struct {
+            right_curly: Token.Index,
             equave: Node.OptionalIndex,
             children: []const Node.Index,
         },
