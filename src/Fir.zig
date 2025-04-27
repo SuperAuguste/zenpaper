@@ -67,8 +67,8 @@ pub const Tone = struct {
     pub const Data = union(enum(u8)) {
         degree: struct {
             equave_exponent: EquaveExponent,
-            scale: Instruction.Index,
-            degree: u32,
+            modulo_equave_exponent: EquaveExponent,
+            degree: Tone.Index,
         },
         ratio: struct {
             equave_exponent: EquaveExponent,
@@ -211,6 +211,13 @@ pub fn toneDataFromUntagged(
     untagged: Tone.Data.Untagged,
 ) Tone.Data {
     return untagged.toTagged(fir.extra, tag);
+}
+
+pub fn toneData(fir: *const Fir, tone: Tone.Index) Tone.Data {
+    return fir.tones.items(.untagged_data)[@intFromEnum(tone)].toTagged(
+        fir.extra,
+        fir.tones.items(.tag)[@intFromEnum(tone)],
+    );
 }
 
 fn debugPrintTone(fir: *const Fir, tone: Tone.Index) void {

@@ -1,6 +1,6 @@
 import { Extension, Prec, RangeSetBuilder } from "@codemirror/state";
 import { Decoration, DecorationSet, EditorView, ViewPlugin, ViewUpdate } from "@codemirror/view";
-import { DocumentUpdatedOnePtr, Highlight, HighlightTag } from "./wasm_types";
+import { DocumentUpdated, DocumentUpdatedOnePtr, Highlight, HighlightManyPtr, HighlightsUpdated, HighlightsUpdatedOnePtr, HighlightTag } from "./wasm_types";
 
 export class WasmAgent {
     private memory: WebAssembly.Memory;
@@ -31,47 +31,59 @@ export class WasmAgent {
     }
 
     // Exports
-    updateDocument(text: string): Highlight[] {
+    updateDocument(text: string) {
         const encoded = new TextEncoder().encode(text);
         const ptr = this.wasmExports.startDocumentUpdate(encoded.length);
         new Uint8Array(this.memory.buffer).set(encoded, ptr);
         const result = this.wasmExports.endDocumentUpdate();
+        return new DocumentUpdatedOnePtr(this.memory.buffer, result).deref();
+    }
 
-        if (result == 0) {
-            return [];
-        }
-
-        const highlights: Highlight[] = [];
-        const document_updated = new DocumentUpdatedOnePtr(this.memory.buffer, result).deref();
-        for (let index = 0; index < document_updated.highlights_len; index += 1) {
-            highlights.push(document_updated.highlights_ptr.deref(index));
-        }
-
-        return highlights;
+    moveCursor(position: number) {
+        const result = this.wasmExports.moveCursor(position);
+        return new HighlightsUpdatedOnePtr(this.memory.buffer, result).deref();
     }
 }
 
+// TODO: Rename this to indicate it does more than just highlighting
 // TODO: Proper storage of WasmAgent per CodeMirror conventions (using a StateField).
 class Highlighter {
     public decorations: DecorationSet;
     private markCache: {[n: number]: Decoration} = {
+        [HighlightTag.comment]: Decoration.mark({class: "comment"}),
         [HighlightTag.chord]: Decoration.mark({class: "chord"}),
+        [HighlightTag.dependencies]: Decoration.mark({class: "dependencies"}),
     }
 
     constructor(view: EditorView, private wasmAgent: WasmAgent) {
-        this.decorations = this.buildDecorations(view);
+        this.fullUpdate(view);
     }
 
     update(update: ViewUpdate) {
-        this.decorations = this.buildDecorations(update.view);
+        if (update.docChanged) {
+            this.fullUpdate(update.view);
+        }
+
+        if (update.selectionSet) {
+            this.decorations = this.buildDecorations(this.wasmAgent.moveCursor(update.state.selection.main.anchor));
+        }
     }
 
-    buildDecorations(view: EditorView): DecorationSet {
+    fullUpdate(view: EditorView) {
+        const documentUpdated = this.wasmAgent.updateDocument(view.state.doc.toString());
+        this.decorations = this.buildDecorations(documentUpdated.highlights_updated);
+    }
+
+    buildDecorations(highlightsUpdated: HighlightsUpdated): DecorationSet {
         const builder = new RangeSetBuilder<Decoration>();
 
-        const highlights = this.wasmAgent.updateDocument(view.state.doc.toString());
-        for (const highlight of highlights) {
+        const highlightsPtr = highlightsUpdated.ptr.unwrap();
+        if (!highlightsPtr) return builder.finish();
+        const highlightsLen = highlightsUpdated.len;
+
+        for (const highlight of highlightsPtr.slice(0, highlightsLen)) {
             builder.add(highlight.start, highlight.end, this.markCache[highlight.tag]);
+
         }
 
         return builder.finish();
@@ -79,8 +91,14 @@ class Highlighter {
 }
 
 const highlighterTheme = EditorView.theme({
+    ".comment": {
+        color: "gray",
+    },
     ".chord": {
         color: "green",
+    },
+    ".dependencies": {
+        backgroundColor: "var(--background-2)",
     },
 });
 

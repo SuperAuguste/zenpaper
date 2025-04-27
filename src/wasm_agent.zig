@@ -37,7 +37,22 @@ export fn startDocumentUpdate(len: u32) [*:0]u8 {
     return state.documentSlice();
 }
 
-export fn endDocumentUpdate() ?*State.DocumentUpdated {
+export fn endDocumentUpdate() *State.DocumentUpdated {
     errdefer |err| @panic(@errorName(err));
-    return try state.updateDocument(allocator);
+    return result(State.DocumentUpdated, try state.updateDocument(allocator));
+}
+
+export fn moveCursor(index: u32) *State.HighlightsUpdated {
+    errdefer |err| @panic(@errorName(err));
+    state.cursor_index = index;
+    return result(State.HighlightsUpdated, try state.updateHighlights(allocator));
+}
+
+fn result(comptime T: type, value: T) *T {
+    const Tmp = struct {
+        var tmp: T = undefined;
+    };
+
+    Tmp.tmp = value;
+    return &Tmp.tmp;
 }

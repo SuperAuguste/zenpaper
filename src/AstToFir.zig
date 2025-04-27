@@ -252,7 +252,7 @@ fn astToFirInternal(ast_to_fir: *AstToFir) !void {
                 const tones = ast_to_fir.endTones(scale_tones_start);
                 assert(tones.len() > 0);
 
-                _ = try ast_to_fir.endInstruction(.{
+                ast_to_fir.scale = try ast_to_fir.endInstruction(.{
                     .scale = .{
                         .tones = tones,
                         .equave = .none,
@@ -364,18 +364,21 @@ fn astToFirInternal(ast_to_fir: *AstToFir) !void {
                 });
 
                 const tones_start = ast_to_fir.startTones();
-                var degree: u32 = 0;
+                var original_degree: u32 = 0;
+
+                var modulo_equave_exponent, var degree = ast_to_fir.processOriginalDegree(original_degree);
                 _ = try ast_to_fir.appendTone(.{
                     .degree = .{
                         .equave_exponent = @enumFromInt(0),
-                        .scale = ast_to_fir.scale,
+                        .modulo_equave_exponent = modulo_equave_exponent,
                         .degree = degree,
                     },
                 }, null);
+
                 for (info.children[0 .. info.children.len - 1]) |scale_mode_child| {
-                    degree = std.math.add(
+                    original_degree = std.math.add(
                         u32,
-                        degree,
+                        original_degree,
                         try ast_to_fir.parseIntFromToken(
                             ast_to_fir.ast.nodeMainToken(scale_mode_child).?,
                         ),
@@ -387,10 +390,11 @@ fn astToFirInternal(ast_to_fir: *AstToFir) !void {
                         return error.AstToFirError;
                     };
 
+                    modulo_equave_exponent, degree = ast_to_fir.processOriginalDegree(original_degree);
                     _ = try ast_to_fir.appendTone(.{
                         .degree = .{
                             .equave_exponent = @enumFromInt(0),
-                            .scale = ast_to_fir.scale,
+                            .modulo_equave_exponent = modulo_equave_exponent,
                             .degree = degree,
                         },
                     }, null);
@@ -420,6 +424,23 @@ fn astToFirInternal(ast_to_fir: *AstToFir) !void {
             else => @panic("TODO"),
         }
     }
+}
+
+fn processOriginalDegree(ast_to_fir: *AstToFir, original_degree: u32) struct {
+    EquaveExponent,
+    Tone.Index,
+} {
+    const scale_info =
+        ast_to_fir.instructions.items(.untagged_data)[@intFromEnum(ast_to_fir.scale)].toTagged(
+            ast_to_fir.extra.items,
+            .scale,
+        ).scale;
+    const scale_len = @intFromEnum(scale_info.tones.end) - @intFromEnum(scale_info.tones.start);
+
+    return .{
+        @enumFromInt(original_degree / scale_len),
+        @enumFromInt(@intFromEnum(scale_info.tones.start) + original_degree % scale_len),
+    };
 }
 
 fn extractHeld(
@@ -454,12 +475,16 @@ fn nodeToTone(ast_to_fir: *AstToFir, node_equave_shifted: Node.Index) !Tone.Inde
     const data = ast_to_fir.ast.nodeData(node);
 
     return try ast_to_fir.appendTone(switch (data) {
-        .degree => .{
-            .degree = .{
-                .equave_exponent = equave_exponent,
-                .scale = ast_to_fir.scale,
-                .degree = try ast_to_fir.parseIntFromToken(main_token.?),
-            },
+        .degree => blk: {
+            const original_degree = try ast_to_fir.parseIntFromToken(main_token.?);
+            const modulo_equave_exponent, const degree = ast_to_fir.processOriginalDegree(original_degree);
+            break :blk .{
+                .degree = .{
+                    .equave_exponent = equave_exponent,
+                    .modulo_equave_exponent = modulo_equave_exponent,
+                    .degree = degree,
+                },
+            };
         },
         .ratio => |info| blk: {
             const numerator = try ast_to_fir.parseIntFromToken(main_token.?);
@@ -857,19 +882,10 @@ fn toneRatio(
 
     return sw: switch (data) {
         .degree => |info| {
-            const scale_info =
-                ast_to_fir.instructions.items(.untagged_data)[@intFromEnum(ast_to_fir.scale)].toTagged(
-                    ast_to_fir.extra.items,
-                    .scale,
-                ).scale;
-            const scale_len = @intFromEnum(scale_info.tones.end) - @intFromEnum(scale_info.tones.start);
-            break :sw ast_to_fir.tones.items(.value)[@intFromEnum(scale_info.tones.start) + info.degree % scale_len] *
-                std.math.pow(
-                    f32,
-                    equave,
-                    @as(f32, @floatFromInt(info.degree / scale_len)),
-                ) *
-                std.math.pow(f32, equave, @floatFromInt(@intFromEnum(info.equave_exponent)));
+            break :sw ast_to_fir.tones.items(.value)[@intFromEnum(info.degree)] *
+                std.math.pow(f32, equave, @floatFromInt(
+                    @intFromEnum(info.equave_exponent) + @intFromEnum(info.modulo_equave_exponent),
+                ));
         },
         .ratio => |info| info.ratio.float() *
             std.math.pow(f32, equave, @floatFromInt(@intFromEnum(info.equave_exponent))),

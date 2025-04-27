@@ -5,6 +5,7 @@ const types = .{
     .{ State.DocumentUpdated, "DocumentUpdated" },
     .{ State.Highlight, "Highlight" },
     .{ State.Highlight.Tag, "HighlightTag" },
+    .{ State.HighlightsUpdated, "HighlightsUpdated" },
 };
 
 pub fn main() !void {
@@ -43,7 +44,15 @@ fn generateType(comptime T: type, name: []const u8, writer: anytype) !void {
                 \\    constructor(public buffer: ArrayBuffer, public address: number) {{}}
                 \\
                 \\    public deref(): {[name]s} {{
-                \\        return {[name]s}.deref(this.buffer, this.address);
+                \\        return {[name]s}.read(this.buffer, this.address);
+                \\    }}
+                \\}}
+                \\
+                \\export class {[name]s}OptionalOnePtr {{
+                \\    constructor(public buffer: ArrayBuffer, public address: number) {{}}
+                \\
+                \\    public unwrap(): {[name]s}OnePtr | null {{
+                \\        return this.address == 0 ? null : new {[name]s}OnePtr(this.buffer, this.address);
                 \\    }}
                 \\}}
                 \\
@@ -51,10 +60,23 @@ fn generateType(comptime T: type, name: []const u8, writer: anytype) !void {
                 \\    public constructor(public buffer: ArrayBuffer, public address: number) {{}}
                 \\
                 \\    public deref(index: number): {[name]s} {{
-                \\        return {[name]s}.deref(this.buffer, this.address + index * {[name]s}.size);
+                \\        return {[name]s}.read(this.buffer, this.address + index * {[name]s}.size);
+                \\    }}
+                \\
+                \\    public* slice(start: number, end: number) {{
+                \\        for (let index = start; index < end; index += 1) {{
+                \\            yield this.deref(index);
+                \\        }}
                 \\    }}
                 \\}}
                 \\
+                \\export class {[name]s}OptionalManyPtr {{
+                \\    constructor(public buffer: ArrayBuffer, public address: number) {{}}
+                \\
+                \\    public unwrap(): {[name]s}ManyPtr | null {{
+                \\        return this.address == 0 ? null : new {[name]s}ManyPtr(this.buffer, this.address);
+                \\    }}
+                \\}}
                 \\
             , .{ .name = name });
 
@@ -76,7 +98,19 @@ fn generateType(comptime T: type, name: []const u8, writer: anytype) !void {
                             else => @compileError(""),
                         }
                     },
-                    .@"enum" => try writer.writeAll(typeToName(field.type)),
+                    .@"struct", .@"enum" => try writer.writeAll(typeToName(field.type)),
+                    .optional => |optional_info| {
+                        switch (@typeInfo(optional_info.child)) {
+                            .pointer => |ptr_info| {
+                                switch (ptr_info.size) {
+                                    .one => try writer.print("{s}OptionalOnePtr", .{typeToName(ptr_info.child)}),
+                                    .many => try writer.print("{s}OptionalManyPtr", .{typeToName(ptr_info.child)}),
+                                    else => @compileError(""),
+                                }
+                            },
+                            else => @compileError("unsupported: " ++ @typeName(field.type)),
+                        }
+                    },
                     else => @compileError("unsupported: " ++ @typeName(field.type)),
                 }
                 try writer.writeAll(";\n");
@@ -84,7 +118,7 @@ fn generateType(comptime T: type, name: []const u8, writer: anytype) !void {
 
             try writer.print(
                 \\
-                \\    public static deref(buffer: ArrayBuffer, address: number) {{
+                \\    public static read(buffer: ArrayBuffer, address: number) {{
                 \\        let result = new {[name]s}();
                 \\        const dataView = new DataView(buffer);
                 \\
@@ -117,6 +151,12 @@ fn generateType(comptime T: type, name: []const u8, writer: anytype) !void {
                             else => @compileError(""),
                         }
                     },
+                    .@"struct" => {
+                        try writer.print(
+                            "{s}.read(buffer, address + {d})",
+                            .{ typeToName(field.type), offset },
+                        );
+                    },
                     .@"enum" => |enum_info| {
                         if (enum_info.tag_type == u8) {
                             try writer.print("dataView.getUint8(address + {d})", .{offset});
@@ -124,6 +164,24 @@ fn generateType(comptime T: type, name: []const u8, writer: anytype) !void {
                             try writer.print("dataView.getUint{d}(address + {d}, true)", .{ @typeInfo(enum_info.tag_type).int.bits, offset });
                         } else {
                             @compileError("");
+                        }
+                    },
+                    .optional => |optional_info| {
+                        switch (@typeInfo(optional_info.child)) {
+                            .pointer => |ptr_info| {
+                                switch (ptr_info.size) {
+                                    .one => try writer.print(
+                                        "new {s}OptionalOnePtr(buffer, dataView.getUint32(address + {d}, true))",
+                                        .{ typeToName(ptr_info.child), offset },
+                                    ),
+                                    .many => try writer.print(
+                                        "new {s}OptionalManyPtr(buffer, dataView.getUint32(address + {d}, true))",
+                                        .{ typeToName(ptr_info.child), offset },
+                                    ),
+                                    else => @compileError(""),
+                                }
+                            },
+                            else => @compileError("unsupported: " ++ @typeName(field.type)),
                         }
                     },
                     else => @compileError("unsupported: " ++ @typeName(field.type)),
@@ -171,6 +229,10 @@ fn wasmSizeOf(comptime T: type) usize {
             return size;
         },
         .pointer => @sizeOf(u32),
+        .optional => |optional_info| {
+            comptime std.debug.assert(@typeInfo(optional_info.child) == .pointer);
+            return @sizeOf(u32);
+        },
         else => @compileError("unsupported: " ++ @typeName(T)),
     };
 }

@@ -246,7 +246,10 @@ pub fn next(tokenizer: *Tokenizer) Token {
                     result.range.start = tokenizer.index;
                     continue :state_machine .start;
                 },
-                0 => break :state_machine .eof,
+                0 => {
+                    result.range.start = tokenizer.index;
+                    break :state_machine .eof;
+                },
                 else => continue :state_machine .comment,
             }
         },
