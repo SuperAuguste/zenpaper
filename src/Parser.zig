@@ -83,82 +83,69 @@ fn parseInternal(parser: *Parser) !void {
     };
 }
 
-// TODO: Refactor to keep '{12edo}/'{12ed2} legal, make '{r440hz} illegal;
-// TODO: split out the code from parseScale to achieve aforementioned
 fn parseRootChild(parser: *Parser) !Node.Index {
-    const start_equave_shifted_optional = try parser.startEquaveShifted();
-
     switch (parser.peekTag(0)) {
         .left_square => {
-            return try parser.couldHold(
-                try parser.couldHaveEquaveShifted(
-                    start_equave_shifted_optional,
-                    try parser.parseChord(),
-                ),
-            );
-        },
-        .left_curly => switch (parser.peekTag(1)) {
-            .keyword_r => {
-                return try parser.couldHaveEquaveShifted(
-                    start_equave_shifted_optional,
-                    try parser.parseRootFrequency(),
-                );
-            },
-            else => {
-                return try parser.couldHaveEquaveShifted(
-                    start_equave_shifted_optional,
-                    try parser.parseScale(),
-                );
-            },
-        },
-        .integer => switch (parser.peekTag(1)) {
-            .colon, .colon_colon => {
-                return try parser.couldHold(try parser.couldHaveEquaveShifted(
-                    start_equave_shifted_optional,
-                    try parser.parseMultiRatio(.raw_chord),
-                ));
-            },
-            else => {},
-        },
-        .period => {
-            if (start_equave_shifted_optional) |_| {
-                try parser.appendExpectedTagsError(parser.token_index, .{.integer});
-                return error.ParseError;
+            switch (parser.peekTag(1)) {
+                .integer => switch (parser.peekTag(2)) {
+                    .colon, .colon_colon => {
+                        return try parser.parseMultiRatio(.chord);
+                    },
+                    else => {},
+                },
+                else => {},
             }
 
-            return try parser.parseRest();
+            return try parser.couldHold(try parser.parseChord());
         },
+        .left_curly => {
+            switch (parser.peekTag(1)) {
+                .keyword_r => return try parser.parseRootFrequency(),
+                .keyword_m => return try parser.parseScaleMode(),
+                .integer => switch (parser.peekTag(2)) {
+                    .keyword_edo => return try parser.parseScaleEdo(),
+                    .keyword_ed => switch (parser.peekTag(3)) {
+                        .integer => switch (parser.peekTag(4)) {
+                            .slash => switch (parser.peekTag(5)) {
+                                .integer => return try parser.parseScaleEdxWholeEquave(),
+                                else => {},
+                            },
+                            else => return try parser.parseScaleEdxWholeEquave(),
+                        },
+                        else => {},
+                    },
+                    .colon, .colon_colon => return try parser.parseMultiRatio(.scale),
+                    else => {},
+                },
+                else => {},
+            }
+
+            return try parser.couldHold(try parser.parseScale());
+        },
+        .integer => switch (parser.peekTag(1)) {
+            .colon,
+            .colon_colon,
+            => return try parser.couldHold(try parser.parseMultiRatio(.raw_chord)),
+            else => {},
+        },
+        .period => return try parser.parseRest(),
         .eof => unreachable,
         else => {},
     }
 
-    return try parser.couldHold(
-        try parser.couldHaveEquaveShifted(
-            start_equave_shifted_optional,
-            try parser.parseNote(.absolute_allowed),
-        ),
-    );
+    return try parser.couldHold(try parser.parseNote(.absolute_allowed));
 }
 
 fn parseChord(parser: *Parser) !Node.Index {
     const scratch_start = parser.pushScratch();
     const left_square = parser.assertToken(.left_square);
 
-    switch (parser.peekTag(0)) {
-        .integer => switch (parser.peekTag(1)) {
-            .colon, .colon_colon => {
-                return try parser.parseMultiRatio(.chord);
-            },
-            else => {},
-        },
-        else => {},
-    }
-
-    try parser.appendNodeToScratch(try parser.parseChordChild());
+    try parser.appendNodeToScratch(try parser.parseNote(.absolute_allowed));
 
     while (parser.peekTag(0) != .right_square) {
         _ = try parser.expectToken(.whitespace);
-        try parser.appendNodeToScratch(try parser.parseChordChild());
+        parser.skipWhitespace();
+        try parser.appendNodeToScratch(try parser.parseNote(.absolute_allowed));
     }
 
     const right_square = parser.assertToken(.right_square);
@@ -171,45 +158,16 @@ fn parseChord(parser: *Parser) !Node.Index {
     }, left_square);
 }
 
-fn parseChordChild(parser: *Parser) !Node.Index {
-    parser.skipWhitespace();
-
-    const start_equave_shifted_optional = try parser.startEquaveShifted();
-    return parser.couldHaveEquaveShifted(
-        start_equave_shifted_optional,
-        try parser.parseNote(.absolute_allowed),
-    );
-}
-
 fn parseScale(parser: *Parser) !Node.Index {
     const scratch_start = parser.pushScratch();
     const left_curly = parser.assertToken(.left_curly);
 
-    switch (parser.peekTag(0)) {
-        .keyword_m => return try parser.parseScaleMode(),
-        .integer => switch (parser.peekTag(1)) {
-            .keyword_edo => return try parser.parseScaleEdo(),
-            .keyword_ed => switch (parser.peekTag(2)) {
-                .integer => switch (parser.peekTag(3)) {
-                    .slash => switch (parser.peekTag(4)) {
-                        .integer => return try parser.parseScaleEdxWholeEquave(),
-                        else => {},
-                    },
-                    else => return try parser.parseScaleEdxWholeEquave(),
-                },
-                else => {},
-            },
-            .colon, .colon_colon => return try parser.parseMultiRatio(.scale),
-            else => {},
-        },
-        else => {},
-    }
-
-    try parser.appendNodeToScratch(try parser.parseScaleChild());
+    try parser.appendNodeToScratch(try parser.parseNote(.relative_only));
 
     while (parser.peekTag(0) != .right_curly) {
         _ = try parser.expectToken(.whitespace);
-        const child = try parser.parseScaleChild();
+        parser.skipWhitespace();
+        const child = try parser.parseNote(.relative_only);
 
         switch (parser.peekTag(0)) {
             .single_quote => {
@@ -239,18 +197,9 @@ fn parseScale(parser: *Parser) !Node.Index {
     }, left_curly);
 }
 
-fn parseScaleChild(parser: *Parser) !Node.Index {
-    parser.skipWhitespace();
-
-    const start_equave_shifted_optional = try parser.startEquaveShifted();
-    return parser.couldHaveEquaveShifted(
-        start_equave_shifted_optional,
-        try parser.parseNote(.relative_only),
-    );
-}
-
 fn parseScaleMode(parser: *Parser) !Node.Index {
     const scratch_start = parser.pushScratch();
+    _ = parser.assertToken(.left_curly);
     const mode_token = parser.assertToken(.keyword_m);
     parser.skipWhitespace();
 
@@ -271,6 +220,7 @@ fn parseScaleMode(parser: *Parser) !Node.Index {
 }
 
 fn parseScaleEdo(parser: *Parser) !Node.Index {
+    _ = parser.assertToken(.left_curly);
     const divisions_token = parser.assertToken(.integer);
     _ = parser.assertToken(.keyword_edo);
     parser.skipWhitespace();
@@ -280,9 +230,10 @@ fn parseScaleEdo(parser: *Parser) !Node.Index {
 }
 
 fn parseScaleEdxWholeEquave(parser: *Parser) !Node.Index {
+    _ = parser.assertToken(.left_curly);
     const divisions_token = parser.assertToken(.integer);
     _ = parser.assertToken(.keyword_ed);
-    const equave = try parser.parseInteger();
+    const equave = try parser.parseAssertInteger();
     parser.skipWhitespace();
     _ = try parser.expectToken(.right_curly);
 
@@ -292,6 +243,7 @@ fn parseScaleEdxWholeEquave(parser: *Parser) !Node.Index {
 }
 
 fn parseScaleEdxFractionEquave(parser: *Parser) !Node.Index {
+    _ = parser.assertToken(.left_curly);
     const divisions_token = parser.assertToken(.integer);
     _ = parser.assertToken(.keyword_ed);
     const equave = try parser.parseFraction();
@@ -307,12 +259,7 @@ fn parseRootFrequency(parser: *Parser) !Node.Index {
     const left_curly = parser.assertToken(.left_curly);
     _ = parser.assertToken(.keyword_r);
 
-    const start_equave_shifted_optional = try parser.startEquaveShifted();
-
-    const child = try parser.couldHaveEquaveShifted(
-        start_equave_shifted_optional,
-        try parser.parseNote(.absolute_allowed),
-    );
+    const child = try parser.parseNote(.absolute_allowed);
 
     _ = try parser.expectToken(.right_curly);
 
@@ -327,51 +274,55 @@ fn parseNote(
     parser: *Parser,
     comptime mode: enum { absolute_allowed, relative_only },
 ) !Node.Index {
-    return switch (parser.peekTag(0)) {
-        .integer => switch (parser.peekTag(1)) {
-            .slash => switch (parser.peekTag(2)) {
-                .integer => try parser.parseRatio(),
-                else => try parser.parseDegree(),
-            },
-            .backslash => switch (parser.peekTag(2)) {
-                .integer => switch (parser.peekTag(3)) {
-                    .keyword_o => switch (parser.peekTag(4)) {
-                        .integer => switch (parser.peekTag(5)) {
-                            .slash => switch (parser.peekTag(6)) {
-                                .integer => try parser.parseEdxstepFractionalEquave(),
-                                else => try parser.parseDegree(),
+    const start_equave_shifted_optional = try parser.startEquaveShifted();
+    return try parser.couldHaveEquaveShifted(
+        start_equave_shifted_optional,
+        switch (parser.peekTag(0)) {
+            .integer => switch (parser.peekTag(1)) {
+                .slash => switch (parser.peekTag(2)) {
+                    .integer => try parser.parseRatio(),
+                    else => try parser.parseDegree(),
+                },
+                .backslash => switch (parser.peekTag(2)) {
+                    .integer => switch (parser.peekTag(3)) {
+                        .keyword_o => switch (parser.peekTag(4)) {
+                            .integer => switch (parser.peekTag(5)) {
+                                .slash => switch (parser.peekTag(6)) {
+                                    .integer => try parser.parseEdxstepFractionalEquave(),
+                                    else => try parser.parseDegree(),
+                                },
+                                else => try parser.parseEdxstepWholeEquave(),
                             },
-                            else => try parser.parseEdxstepWholeEquave(),
+                            else => try parser.parseDegree(),
+                        },
+                        else => try parser.parseEdostep(),
+                    },
+                    else => try parser.parseDegree(),
+                },
+                .keyword_c => try parser.parseWholeCents(),
+                .keyword_hz => switch (mode) {
+                    .relative_only => try parser.parseDegree(),
+                    else => try parser.parseWholeHertz(),
+                },
+                .period => switch (parser.peekTag(2)) {
+                    .integer => switch (parser.peekTag(3)) {
+                        .keyword_c => try parser.parseFractionalCents(),
+                        .keyword_hz => switch (mode) {
+                            .relative_only => try parser.parseDegree(),
+                            else => try parser.parseFractionalHertz(),
                         },
                         else => try parser.parseDegree(),
-                    },
-                    else => try parser.parseEdostep(),
-                },
-                else => try parser.parseDegree(),
-            },
-            .keyword_c => try parser.parseWholeCents(),
-            .keyword_hz => switch (mode) {
-                .relative_only => try parser.parseDegree(),
-                else => try parser.parseWholeHertz(),
-            },
-            .period => switch (parser.peekTag(2)) {
-                .integer => switch (parser.peekTag(3)) {
-                    .keyword_c => try parser.parseFractionalCents(),
-                    .keyword_hz => switch (mode) {
-                        .relative_only => try parser.parseDegree(),
-                        else => try parser.parseFractionalHertz(),
                     },
                     else => try parser.parseDegree(),
                 },
                 else => try parser.parseDegree(),
             },
-            else => try parser.parseDegree(),
+            else => {
+                try parser.appendExpectedTagsError(parser.token_index, .{.integer});
+                return error.ParseError;
+            },
         },
-        else => {
-            try parser.appendExpectedTagsError(parser.token_index, .{.integer});
-            return error.ParseError;
-        },
-    };
+    );
 }
 
 const StartEquaveShifted = struct {
@@ -383,7 +334,6 @@ fn startEquaveShifted(parser: *Parser) !?StartEquaveShifted {
     var first_shift_token: ?Token.Index = null;
 
     switch (parser.peekTag(0)) {
-        .whitespace => unreachable,
         .single_quote, .double_quote => {
             equave_shift += switch (parser.peekTag(0)) {
                 .single_quote => 1,
@@ -530,8 +480,12 @@ fn parseEdostep(parser: *Parser) !Node.Index {
     }, edostep_token);
 }
 
-fn parseInteger(parser: *Parser) !Node.Index {
+fn parseAssertInteger(parser: *Parser) !Node.Index {
     return parser.appendNode(.integer, parser.assertToken(.integer));
+}
+
+fn parseInteger(parser: *Parser) !Node.Index {
+    return parser.appendNode(.integer, try parser.expectToken(.integer));
 }
 
 fn parseEdxstepWholeEquave(parser: *Parser) !Node.Index {
@@ -539,7 +493,7 @@ fn parseEdxstepWholeEquave(parser: *Parser) !Node.Index {
     _ = parser.assertToken(.backslash);
     const divisions_token = parser.assertToken(.integer);
     _ = parser.assertToken(.keyword_o);
-    const equave = try parser.parseInteger();
+    const equave = try parser.parseAssertInteger();
 
     return parser.appendNode(.{
         .edxstep = .{
@@ -610,7 +564,13 @@ fn parseRest(parser: *Parser) !Node.Index {
 fn parseMultiRatio(parser: *Parser, comptime mode: enum { raw_chord, chord, scale }) !Node.Index {
     const scratch_start = parser.pushScratch();
 
-    const base_token = parser.assertToken(.integer);
+    const openner = switch (mode) {
+        .raw_chord => null,
+        .chord => parser.assertToken(.left_square),
+        .scale => parser.assertToken(.left_curly),
+    };
+
+    try parser.appendNodeToScratch(try parser.parseInteger());
     std.debug.assert(switch (parser.peekTag(0)) {
         .colon, .colon_colon => true,
         else => false,
@@ -635,7 +595,7 @@ fn parseMultiRatio(parser: *Parser, comptime mode: enum { raw_chord, chord, scal
         .{
             .children = @ptrCast(parser.popScratch(scratch_start)),
         },
-    ), base_token);
+    ), openner);
 }
 
 fn parseMultiRatioPart(parser: *Parser) !?Node.Index {

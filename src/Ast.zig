@@ -56,7 +56,7 @@ pub const Node = struct {
         hz: struct { fractional_part: Token.OptionalIndex },
 
         /// main_token is first equave shift
-        /// child may be a note, chord, or scale
+        /// child is a note
         equave_shifted: struct { equave_shift: i32, child: Node.Index },
         /// main_token is first dash
         /// child may be a note, chord, or equave_shifted
@@ -72,9 +72,8 @@ pub const Node = struct {
             children: []const Node.Index,
         },
 
-        // TODO: first, last token when [] is present
-        /// main_token is the ratio base
-        /// can contain single_colon_multi_ratio_part, double_colon_multi_ratio_part
+        /// main_token may be l_square
+        /// first is integer, rest are single_colon_multi_ratio_part, double_colon_multi_ratio_part
         chord_multi_ratio: struct { children: []const Node.Index },
 
         /// main_token is integer
@@ -90,8 +89,8 @@ pub const Node = struct {
             children: []const Node.Index,
         },
 
-        /// main_token is the ratio base
-        /// can contain single_colon_multi_ratio_part, double_colon_multi_ratio_part
+        /// main_token is left_curly
+        /// first is integer, rest are single_colon_multi_ratio_part, double_colon_multi_ratio_part
         scale_multi_ratio: struct { children: []const Node.Index },
         /// main_token is the number of divisions
         scale_edo,
@@ -209,10 +208,12 @@ pub fn nodeFirstToken(ast: *const Ast, node: Node.Index) ?Token.Index {
         .equave_shifted,
         .rest,
         .chord,
-        .chord_multi_ratio,
         .scale,
         .scale_multi_ratio,
         => ast.nodeMainToken(node).?,
+
+        .chord_multi_ratio => |info| ast.nodeMainToken(node) orelse
+            ast.nodeFirstToken(info.children[0]).?,
 
         .held => |info| ast.nodeFirstToken(info.child),
 

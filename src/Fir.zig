@@ -125,16 +125,17 @@ pub const Instruction = struct {
             timing: Timing,
         },
         chord: struct {
-            equave_exponent: EquaveExponent,
             root_frequency: Tone.Index,
             tones: Tone.Range,
             length_modifier: LengthModifier,
             timing: Timing,
         },
         scale: struct {
-            equave_exponent: EquaveExponent,
             tones: Tone.Range,
             equave: Tone.OptionalIndex,
+        },
+        rest: struct {
+            timing: Timing,
         },
 
         pub const Untagged = Extra.Untagged(Data);

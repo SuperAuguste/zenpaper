@@ -20,7 +20,6 @@ fn log(
     const writer = fbs.writer();
 
     writer.print(level_txt ++ prefix2 ++ format, args) catch return;
-
     consoleLog(fbs.buffer.ptr, fbs.pos);
 }
 
