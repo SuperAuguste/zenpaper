@@ -1,0 +1,32 @@
+:root {
+    --foreground: hsl(210, 100%, 90%);
+    --background: hsl(210, 100%, 5%);
+    --background-2: hsl(210, 100%, 20%);
+    
+    --text-font: "Inter", Arial, Helvetica, sans-serif;
+    --code-font: "Fira Code", monospace;
+}
+
+* {
+    box-sizing: border-box;
+}
+
+html, body {
+    margin: 0;
+    padding: 0;
+
+    width: 100%;
+    height: 100%;
+
+    color: var(--foreground);
+    font-family: var(--text-font);
+    background-color: var(--background);
+
+    overflow: hidden;
+}
+
+.cm-editor {
+    width: 100%;
+    height: 100%;
+    font-size: 2em;
+}

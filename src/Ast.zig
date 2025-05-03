@@ -56,7 +56,7 @@ pub const Node = struct {
         hz: struct { fractional_part: Token.OptionalIndex },
 
         /// main_token is first equave shift
-        /// child may be a note, chord, or scale
+        /// child is a note
         equave_shifted: struct { equave_shift: i32, child: Node.Index },
         /// main_token is first dash
         /// child may be a note, chord, or equave_shifted
@@ -65,12 +65,15 @@ pub const Node = struct {
         /// main_token is period
         rest,
 
-        /// main_token is left_square or none in the case of an unwrapped multi_ratio
+        /// main_token is left_square
         /// can contain degree, ratio, cents, edostep, edxstep, hz, equave_up/down, multi_ratio
-        chord: struct { children: []const Node.Index },
+        chord: struct {
+            right_square: Token.Index,
+            children: []const Node.Index,
+        },
 
-        /// main_token is the ratio base
-        /// can contain single_colon_multi_ratio_part, double_colon_multi_ratio_part
+        /// main_token may be l_square
+        /// first is integer, rest are single_colon_multi_ratio_part, double_colon_multi_ratio_part
         chord_multi_ratio: struct { children: []const Node.Index },
 
         /// main_token is integer
@@ -81,12 +84,13 @@ pub const Node = struct {
         /// main_token is left_curly
         /// can contain degree, ratio, cents, edostep, edxstep, equave_up/down
         scale: struct {
+            right_curly: Token.Index,
             equave: Node.OptionalIndex,
             children: []const Node.Index,
         },
 
-        /// main_token is the ratio base
-        /// can contain single_colon_multi_ratio_part, double_colon_multi_ratio_part
+        /// main_token is left_curly
+        /// first is integer, rest are single_colon_multi_ratio_part, double_colon_multi_ratio_part
         scale_multi_ratio: struct { children: []const Node.Index },
         /// main_token is the number of divisions
         scale_edo,
@@ -183,6 +187,88 @@ pub fn nodeDataFromUntagged(ast: *const Ast, tag: Node.Tag, untagged: Node.Data.
 
 pub fn nodeData(ast: *const Ast, node: Node.Index) Node.Data {
     return ast.nodeDataFromUntagged(ast.nodeTag(node), ast.nodeUntaggedData(node));
+}
+
+/// Ignores whitespace.
+pub fn nodeFirstToken(ast: *const Ast, node: Node.Index) ?Token.Index {
+    return switch (ast.nodeData(node)) {
+        .root => |info| if (info.children.len > 0)
+            ast.nodeFirstToken(info.children[0]).?
+        else
+            null,
+
+        .integer,
+        .fraction,
+        .degree,
+        .ratio,
+        .cents,
+        .edostep,
+        .edxstep,
+        .hz,
+        .equave_shifted,
+        .rest,
+        .chord,
+        .scale,
+        .scale_multi_ratio,
+        => ast.nodeMainToken(node).?,
+
+        .chord_multi_ratio => |info| ast.nodeMainToken(node) orelse
+            ast.nodeFirstToken(info.children[0]).?,
+
+        .held => |info| ast.nodeFirstToken(info.child),
+
+        .single_colon_multi_ratio_part,
+        .double_colon_multi_ratio_part,
+        .scale_edo,
+        .scale_edx,
+        .scale_mode,
+        .root_frequency,
+        => @enumFromInt(@intFromEnum(ast.nodeMainToken(node).?) - 1),
+    };
+}
+
+/// Ignores whitespace.
+pub fn nodeLastToken(ast: *const Ast, node: Node.Index) ?Token.Index {
+    return switch (ast.nodeData(node)) {
+        .root => |info| if (info.children.len > 0)
+            ast.nodeLastToken(info.children[info.children.len - 1]).?
+        else
+            null,
+
+        .integer,
+        .degree,
+        .rest,
+        .single_colon_multi_ratio_part,
+        .double_colon_multi_ratio_part,
+        => ast.nodeMainToken(node).?,
+
+        inline .fraction, .ratio => |info| info.denominator,
+        inline .cents, .hz => |info| @enumFromInt(
+            (if (info.fractional_part.unwrap()) |part|
+                @intFromEnum(part)
+            else
+                @intFromEnum(ast.nodeMainToken(node).?)) + 1,
+        ),
+        .edostep => |info| info.divisions,
+        .edxstep => |info| ast.nodeLastToken(info.equave),
+        inline .equave_shifted, .held, .root_frequency => |info| ast.nodeLastToken(info.child).?,
+        .chord => |info| info.right_square,
+        inline .chord_multi_ratio, .scale_multi_ratio => |info| ast.nodeLastToken(info.children[info.children.len - 1]).?,
+        .scale => |info| info.right_curly,
+        .scale_edo => @enumFromInt(@intFromEnum(ast.nodeMainToken(node).?) + 2),
+        .scale_edx => |info| @enumFromInt(@intFromEnum(ast.nodeLastToken(info.equave).?) + 1),
+        .scale_mode => |info| @enumFromInt(@intFromEnum(info.children[info.children.len - 1]) + 1),
+    };
+}
+
+pub fn nodeRange(ast: *const Ast, tokens: *const Tokenizer.Tokens, node: Node.Index) ?Token.Range {
+    const first = ast.nodeFirstToken(node) orelse return null;
+    const last = ast.nodeLastToken(node) orelse return null;
+
+    return .{
+        .start = tokens.range(first).start,
+        .end = tokens.range(last).end,
+    };
 }
 
 pub fn debugPrintNode(
